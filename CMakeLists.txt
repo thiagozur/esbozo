@@ -20,6 +20,7 @@ set(HEADERS
     src/core/Block.hpp
     src/core/ParagraphBlock.hpp
     src/core/GraphBlock.hpp
+    src/core/Document.hpp
 )
 
 add_executable(Esbozo
