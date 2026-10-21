@@ -5,13 +5,12 @@
 class ParagraphBlock : public Block {
 private:
     QString m_text;
-    bool m_isTitle;
 
 public:
-    ParagraphBlock (bool isTitle = false) : m_isTitle (isTitle) {}
+    ParagraphBlock() = default;
 
     BlockType getType() const override {
-        return m_isTitle ? BlockType::Title : BlockType::Paragraph;
+        return BlockType::Paragraph;
     }
 
     void setContent (const QString& content) override {
@@ -23,9 +22,6 @@ public:
     }
 
     QString toMarkdown() const override {
-        if (m_isTitle) {
-            return "# " + m_text + "\n\n";
-        }
         return m_text + "\n\n";
     }
 };

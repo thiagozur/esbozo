@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include "Document.hpp"
+#include "TitleBlock.hpp"
+#include "SubtitleBlock.hpp"
 #include "ParagraphBlock.hpp"
 #include "GraphBlock.hpp"
 #include <QString>
@@ -23,12 +25,12 @@ private:
 public:
     CommandProcessor (Document& doc) : m_document (doc), m_activeBlockIndex (0) {
         if (m_document.getBlockCount() == 0) {
-            m_document.addBlock (std::make_unique<ParagraphBlock> (false));
+            m_document.addBlock (std::make_unique<TitleBlock>());
         }
     }
 
     static QStringList getSupportedCommands() {
-        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;", };
+        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "sttl;;", "ttl;;", "par;;", "grf;;", "ft;;"};
     }
 
     CommandResult processInput (const QString& input) {
@@ -78,59 +80,62 @@ public:
             }
             return CommandResult::BlockReset;
         }
-        else if (triggeredCommand == "del;;") {
-            if (m_document.getBlockCount() > 1) {
-                m_document.removeBlock (m_activeBlockIndex);
-                if (m_activeBlockIndex > 0)
-                    m_activeBlockIndex--;
-            } else {
-                if (Block* current = m_document.getBlock (m_activeBlockIndex))
-                    current->setContent ("");
-            }
-            return CommandResult::BlockDeleted;
-        }
         else if (triggeredCommand == "ttl;;") {
-            createNewBlock(std::make_unique<ParagraphBlock> (true));
+            createNewBlock (std::make_unique<TitleBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "sttl;;") {
-            auto block = std::make_unique<ParagraphBlock> (true);
-            block->setContent ("Subtitle");
-            createNewBlock(std::move (block));
+            createNewBlock (std::make_unique<SubtitleBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "par;;") {
-            createNewBlock(std::make_unique<ParagraphBlock> (false));
+            createNewBlock (std::make_unique<ParagraphBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "grf;;") {
-            createNewBlock(std::make_unique<GraphBlock> ("Gráfico"));
+            createNewBlock (std::make_unique<GraphBlock> ("Gráfico"));
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "ft;;") {
-            auto block = std::make_unique<ParagraphBlock> (false);
+            auto block = std::make_unique<ParagraphBlock>();
             block->setContent ("[Figura/Imagen]");
-            createNewBlock(std::move (block));
+            createNewBlock(std::move(block));
             return CommandResult::BlockCreated;
         }
-        else if (triggeredCommand == "cpar;;") {
-            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-                if (dynamic_cast<ParagraphBlock*> (current)) {
-                    auto newBlock = std::make_unique<ParagraphBlock> (false);
-                    newBlock->setContent (textPayload);
-                    m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
+        else if (triggeredCommand == "del;;") {
+            if (m_document.getBlockCount() > 1) {
+                m_document.removeBlock (m_activeBlockIndex);
+                if (m_activeBlockIndex > 0) {
+                    m_activeBlockIndex--;
                 }
+            } else {
+                if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                    current->setContent ("");
+                }
+            }
+            return CommandResult::BlockDeleted;
+        }
+        else if (triggeredCommand == "cparc;;") {
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                auto newBlock = std::make_unique<ParagraphBlock>();
+                newBlock->setContent (current->getContent());
+                m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
             }
             return CommandResult::TextUpdated;
         }
-        else if (triggeredCommand == "cttl;;" || triggeredCommand == "csttl;;") {
+        else if (triggeredCommand == "cttlc;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-                if (dynamic_cast<ParagraphBlock*> (current)) {
-                    auto newBlock = std::make_unique<ParagraphBlock> (true);
-                    QString contentToUse = textPayload.isEmpty() ? current->getContent() : textPayload;
-                    newBlock->setContent (contentToUse);
-                    m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
-                }
+                auto newBlock = std::make_unique<TitleBlock>();
+                newBlock->setContent (current->getContent());
+                m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
+            }
+            return CommandResult::TextUpdated;
+        }
+        else if (triggeredCommand == "csttlc;;") {
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                auto newBlock = std::make_unique<SubtitleBlock>();
+                newBlock->setContent (current->getContent());
+                m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
             }
             return CommandResult::TextUpdated;
         }

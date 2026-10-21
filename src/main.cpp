@@ -52,7 +52,7 @@ public:
         resize (800, 600);
 
         if (m_document.getBlockCount() == 0) {
-            m_document.addBlock(std::make_unique<ParagraphBlock> (false));
+            m_document.addBlock(std::make_unique<TitleBlock>());
         }
 
         QWidget *centralWidget = new QWidget (this);
@@ -240,7 +240,7 @@ private:
             Block* block = m_document.getBlock (i);
             if (!block) continue;
 
-            bool isTitle = (block->getType() == BlockType::Title);
+            BlockType type = block->getType();
 
             if (i == m_activeBlockIndex) {
                 QTextEdit *editBox = new QTextEdit (m_containerWidget);
@@ -248,10 +248,12 @@ private:
                 editBox->moveCursor (QTextCursor::End);
                 editBox->setAcceptRichText (false);
                 
-                if (isTitle) {
+                if (type == BlockType::Title) {
                     editBox->setFont (QFont ("Segoe UI", 16, QFont::Bold));
+                } else if (type == BlockType::Subtitle) {
+                    editBox->setFont (QFont ("Segoe UI", 14, QFont::DemiBold));
                 } else {
-                    editBox->setFont (QFont ("Segoe UI", 13, QFont::Bold));
+                    editBox->setFont (QFont ("Segoe UI", 13, QFont::Normal));
                 }
 
                 editBox->setStyleSheet ("QTextEdit { background-color: #F0F8FF; border: 2px solid #4682B4; padding: 6px; border-radius: 4px; }");
@@ -299,9 +301,12 @@ private:
 
                 ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
                 
-                if (isTitle) {
+                if (type == BlockType::Title) {
                     label->setFont (QFont ("Segoe UI", 15, QFont::Bold));
                     label->setStyleSheet ("QLabel { color: #222222; padding: 6px; }");
+                } else if (type == BlockType::Subtitle) {
+                    label->setFont (QFont ("Segoe UI", 13, QFont::DemiBold));
+                    label->setStyleSheet ("QLabel { color: #444444; padding: 6px; }");
                 } else {
                     label->setFont (QFont ("Segoe UI", 11, QFont::Normal));
                     label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");

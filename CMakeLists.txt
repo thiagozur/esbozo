@@ -18,6 +18,8 @@ set(SOURCES
 
 set(HEADERS
     src/core/Block.hpp
+    src/core/TitleBlock.hpp
+    src/core/SubtitleBlock.hpp
     src/core/ParagraphBlock.hpp
     src/core/GraphBlock.hpp
     src/core/Document.hpp
