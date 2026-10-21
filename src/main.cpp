@@ -13,12 +13,14 @@
 #include <QTimer>
 #include <QScrollBar>
 #include <QAbstractTextDocumentLayout>
+#include <QFileDialog>
 
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
 
 class ClickableLabel : public QLabel {
     Q_OBJECT
+
 public:
     explicit ClickableLabel (const QString &text, QWidget *parent = nullptr) : QLabel (text, parent) {}
 
@@ -29,6 +31,43 @@ protected:
     void mouseDoubleClickEvent (QMouseEvent *event) override {
         QLabel::mouseDoubleClickEvent (event);
         emit doubleClicked();
+    }
+};
+
+class ImageLabel : public ClickableLabel {
+    Q_OBJECT
+private:
+    QPixmap m_original;
+    int m_lastWidth = -1;
+    static constexpr int kChrome = 2 * (8 + 1);
+
+public:
+    explicit ImageLabel (const QString &path, QWidget *parent = nullptr)
+        : ClickableLabel ("", parent), m_original (path)
+    {
+        setAlignment (Qt::AlignCenter);
+
+        if (path.isEmpty()) {
+            setText ("(imagen vacía)");
+            setStyleSheet ("QLabel { color: #888888; font-style: italic; padding: 6px; }");
+        } else if (m_original.isNull()) {
+            setText ("[Error cargando imagen: " + path + "]");
+            setStyleSheet ("QLabel { color: #CC0000; font-weight: bold; padding: 6px; }");
+        } else {
+            setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
+        }
+    }
+
+    void setBoxWidth (int boxWidth) {
+        if (m_original.isNull()) return;
+
+        int pixWidth = qMax (50, boxWidth - kChrome);
+        if (pixWidth == m_lastWidth) return;
+        m_lastWidth = pixWidth;
+
+        QPixmap scaled = m_original.scaledToWidth (pixWidth, Qt::SmoothTransformation);
+        setPixmap (scaled);
+        setFixedSize (scaled.width() + kChrome, scaled.height() + kChrome);
     }
 };
 
@@ -143,6 +182,7 @@ protected:
 
     void resizeEvent (QResizeEvent *event) override {
         QMainWindow::resizeEvent (event);
+        updateImageWidths();
         centerActiveBlock();
     }
 
@@ -160,6 +200,42 @@ private slots:
         }
 
         refreshUI();
+
+        if (Block* currentBlock = m_document.getBlock(m_activeBlockIndex)) {
+            if (currentBlock->getType() == BlockType::Image && currentBlock->getContent().isEmpty()) {
+                QFileDialog dialog (this, "Seleccionar Imagen");
+                dialog.setOption (QFileDialog::DontUseNativeDialog, true);
+                dialog.setFileMode (QFileDialog::ExistingFile);
+                dialog.setNameFilter ("Imágenes (*.png *.jpg *.jpeg)");
+                dialog.setViewMode (QFileDialog::Detail);
+                dialog.setStyleSheet(
+                    "QDialog { background-color: #Fdfdfd; }"
+                    "QLabel { color: #333333; font-family: 'Segoe UI'; }"
+                    "QPushButton { background-color: #4682B4; color: white; border-radius: 4px; padding: 6px 12px; font-family: 'Segoe UI'; }"
+                    "QPushButton:hover { background-color: #3b6e9b; }"
+                );
+                
+                if (dialog.exec() == QDialog::Accepted) {
+                    QStringList files = dialog.selectedFiles();
+                    if (!files.isEmpty()) {
+
+                        currentBlock->setContent (files.first());
+                        refreshUI(); 
+                    }
+                } else {
+                    if (m_document.getBlockCount() > 1) {
+                        size_t indexToDelete = m_activeBlockIndex;
+                        if (m_activeBlockIndex > 0) {
+                            m_activeBlockIndex--;
+                        }
+                        m_document.removeBlock (indexToDelete);
+                    } else {
+                        currentBlock->setContent ("");
+                    }
+                    refreshUI();
+                }
+            }
+        }
     }
 
 private:
@@ -181,47 +257,50 @@ private:
         }
     }
 
+    void updateImageWidths() {
+        int available = m_scrollArea->width() - 2 * m_scrollArea->frameWidth() - 40;
+        int boxWidth = qMax (100, available / 2);
+
+        for (int i = 0; i < m_documentLayout->count(); ++i) {
+            QLayoutItem *item = m_documentLayout->itemAt (i);
+            if (auto *img = qobject_cast<ImageLabel*> (item->widget())) {
+                img->setBoxWidth (boxWidth);
+            }
+        }
+    }
+
     void centerActiveBlock() {
         if (!m_containerWidget || !m_scrollArea) return;
-        
+
         int viewportHeight = m_scrollArea->viewport()->height();
-        if (viewportHeight <= 0) return;
+        int count = m_documentLayout->count();
+        if (viewportHeight <= 0 || count == 0 || m_activeBlockIndex >= static_cast<size_t> (count)) return;
 
-        int count = static_cast<int> (m_document.getBlockCount());
-        if (count == 0) return;
-
-        m_containerWidget->adjustSize();
-
-        QWidget *activeWidget = nullptr;
-        int hAbove = 0;
+        const int sideMargin = 20;
+        int contentWidth = m_scrollArea->viewport()->width() - 2 * sideMargin;
         int spacing = m_documentLayout->spacing();
 
+        int hAbove = 0;
+        int hActive = 50;
         for (int i = 0; i < count; ++i) {
             QLayoutItem *item = m_documentLayout->itemAt (i);
-            if (!item || !item->widget()) continue;
-            QWidget *w = item->widget();
+            int h = item->hasHeightForWidth() ? item->heightForWidth (contentWidth) : item->sizeHint().height();
             if (static_cast<size_t> (i) < m_activeBlockIndex) {
-                hAbove += w->height() + spacing;
-            } else if (static_cast<size_t> (i) == m_activeBlockIndex) {
-                activeWidget = w;
+                hAbove += h + spacing;
+            } else {
+                hActive = h;
                 break;
             }
         }
 
-        int hActive = activeWidget ? activeWidget->height() : 50;
         int idealY = (viewportHeight / 2) - (hActive / 2);
         int topMargin = qMax (0, idealY - hAbove);
         int bottomMargin = qMax (0, (viewportHeight / 2) - (hActive / 2));
 
-        m_documentLayout->setContentsMargins (20, topMargin, 20, bottomMargin);
-        m_containerWidget->adjustSize();
+        m_documentLayout->setContentsMargins (sideMargin, topMargin, sideMargin, bottomMargin);
 
-        if (topMargin == 0 && activeWidget) {
-            int targetScroll = activeWidget->y() + (activeWidget->height() / 2) - (viewportHeight / 2);
-            m_scrollArea->verticalScrollBar()->setValue (targetScroll);
-        } else {
-            m_scrollArea->verticalScrollBar()->setValue (0);
-        }
+        int scroll = (topMargin == 0) ? (hAbove - idealY) : 0;
+        m_scrollArea->verticalScrollBar()->setValue (scroll);
     }
 
     void refreshUI() {
@@ -252,6 +331,11 @@ private:
                     editBox->setFont (QFont ("Segoe UI", 16, QFont::Bold));
                 } else if (type == BlockType::Subtitle) {
                     editBox->setFont (QFont ("Segoe UI", 14, QFont::DemiBold));
+                } else if (type == BlockType::Image) {
+                    editBox->setFont (QFont ("Segoe UI", 11, QFont::StyleItalic));
+                    if (block->getContent().isEmpty()) {
+                        editBox->setPlaceholderText ("Ruta de la imagen...");
+                    }
                 } else {
                     editBox->setFont (QFont ("Segoe UI", 13, QFont::Normal));
                 }
@@ -290,39 +374,55 @@ private:
                     }
                 });
             } else {
-                QString content = block->getContent();
-                if (content.isEmpty()) {
-                    content = "(vacío)";
+                if (type == BlockType::Image) {
+                    QString path = block->getContent();
+                    
+                    ImageLabel *label = new ImageLabel (path, m_containerWidget);
+
+                    connect (label, &ImageLabel::doubleClicked, this, [this, i]() {
+                        saveCurrentContent();
+                        m_activeBlockIndex = i;
+                        refreshUI();
+                    });
+
+                    m_documentLayout->addWidget (label, 0, Qt::AlignCenter);
                 } else {
-                    content = content.toHtmlEscaped();
-                    content.replace ("\n\n", "<br>&nbsp;<br>");
-                    content.replace ("\n", "<br>");
+                    QString content = block->getContent();
+                    if (content.isEmpty()) {
+                        content = "(vacío)";
+                    } else {
+                        content = content.toHtmlEscaped();
+                        content.replace ("\n\n", "<br>&nbsp;<br>");
+                        content.replace ("\n", "<br>");
+                    }
+
+                    ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
+                    
+                    if (type == BlockType::Title) {
+                        label->setFont (QFont ("Segoe UI", 15, QFont::Bold));
+                        label->setStyleSheet ("QLabel { color: #222222; padding: 6px; }");
+                    } else if (type == BlockType::Subtitle) {
+                        label->setFont (QFont ("Segoe UI", 13, QFont::DemiBold));
+                        label->setStyleSheet ("QLabel { color: #444444; padding: 6px; }");
+                    } else {
+                        label->setFont (QFont ("Segoe UI", 11, QFont::Normal));
+                        label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");
+                    }
+
+                    label->setWordWrap (true);
+                    
+                    connect (label, &ClickableLabel::doubleClicked, this, [this, i]() {
+                        saveCurrentContent();
+                        m_activeBlockIndex = i;
+                        refreshUI();
+                    });
+
+                    m_documentLayout->addWidget (label);
                 }
-
-                ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
-                
-                if (type == BlockType::Title) {
-                    label->setFont (QFont ("Segoe UI", 15, QFont::Bold));
-                    label->setStyleSheet ("QLabel { color: #222222; padding: 6px; }");
-                } else if (type == BlockType::Subtitle) {
-                    label->setFont (QFont ("Segoe UI", 13, QFont::DemiBold));
-                    label->setStyleSheet ("QLabel { color: #444444; padding: 6px; }");
-                } else {
-                    label->setFont (QFont ("Segoe UI", 11, QFont::Normal));
-                    label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");
-                }
-
-                label->setWordWrap (true);
-                
-                connect (label, &ClickableLabel::doubleClicked, this, [this, i]() {
-                    saveCurrentContent();
-                    m_activeBlockIndex = i;
-                    refreshUI();
-                });
-
-                m_documentLayout->addWidget (label);
             }
         }
+
+        updateImageWidths();
 
         m_statusLabel->setText (QString ("Bloque activo: %1 / %2").arg (m_activeBlockIndex + 1).arg (count));
         

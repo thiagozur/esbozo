@@ -21,6 +21,7 @@ set(HEADERS
     src/core/TitleBlock.hpp
     src/core/SubtitleBlock.hpp
     src/core/ParagraphBlock.hpp
+    src/core/ImageBlock.hpp
     src/core/GraphBlock.hpp
     src/core/Document.hpp
     src/core/CommandProcessor.hpp

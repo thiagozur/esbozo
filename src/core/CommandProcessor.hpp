@@ -4,6 +4,7 @@
 #include "TitleBlock.hpp"
 #include "SubtitleBlock.hpp"
 #include "ParagraphBlock.hpp"
+#include "ImageBlock.hpp"
 #include "GraphBlock.hpp"
 #include <QString>
 #include <memory>
@@ -97,9 +98,7 @@ public:
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "ft;;") {
-            auto block = std::make_unique<ParagraphBlock>();
-            block->setContent ("[Figura/Imagen]");
-            createNewBlock(std::move(block));
+            createNewBlock(std::make_unique<ImageBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "del;;") {
