@@ -30,24 +30,6 @@ public:
         m_dataPoints.append(QPointF(x, y));
     }
 
-    qreal getHeight() const override {
-        return 200.0;
-    }
-
-    void render(QPainter& painter, const QRectF& rect) override {
-        painter.save();
-        
-        painter.setPen (Qt::gray);
-        painter.setBrush (QColor(245, 245, 245));
-        painter.drawRoundedRect (rect, 6, 6);
-
-        painter.setPen (Qt::black);
-        painter.setFont (QFont("Segoe UI", 10, QFont::Bold));
-        painter.drawText (rect.adjusted(10, 10, -10, 0), Qt::AlignLeft | Qt::AlignTop, m_title);
-        
-        painter.restore();
-    }
-
     QString toMarkdown() const override {
         return QString("[Gráfico: %1 (Datos: %2)]\n\n").arg(m_title, m_csvFilePath);
     }

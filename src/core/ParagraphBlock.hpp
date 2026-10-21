@@ -22,21 +22,6 @@ public:
         return m_text;
     }
 
-    qreal getHeight() const override {
-        return m_isTitle ? 40.0 : 24.0;
-    }
-
-    void render (QPainter& painter, const QRectF& rect) override {
-        painter.save();
-        if (m_isTitle) {
-            painter.setFont(QFont ("Segoe UI", 16, QFont::Bold));
-        } else {
-            painter.setFont(QFont ("Segoe UI", 11, QFont::Normal));
-        }
-        painter.drawText(rect, Qt::AlignLeft | Qt::AlignVCenter, m_text);
-        painter.restore();
-    }
-
     QString toMarkdown() const override {
         if (m_isTitle) {
             return "# " + m_text + "\n\n";

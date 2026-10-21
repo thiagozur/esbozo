@@ -127,13 +127,13 @@ protected:
         if (event->modifiers() == Qt::ControlModifier) {
             if (event->key() == Qt::Key_Comma || event->key() == Qt::Key_Up) {
                 saveCurrentContent();
-                saveAndNavigate(-1);
+                saveAndNavigate (-1);
                 event->accept();
                 return;
             } 
             else if (event->key() == Qt::Key_Period || event->key() == Qt::Key_Down) {
                 saveCurrentContent();
-                saveAndNavigate(1);
+                saveAndNavigate (1);
                 event->accept();
                 return;
             }
@@ -240,12 +240,20 @@ private:
             Block* block = m_document.getBlock (i);
             if (!block) continue;
 
+            bool isTitle = (block->getType() == BlockType::Title);
+
             if (i == m_activeBlockIndex) {
                 QTextEdit *editBox = new QTextEdit (m_containerWidget);
                 editBox->setPlainText (block->getContent());
                 editBox->moveCursor (QTextCursor::End);
                 editBox->setAcceptRichText (false);
-                editBox->setFont (QFont ("Segoe UI", 13, QFont::Bold));
+                
+                if (isTitle) {
+                    editBox->setFont (QFont ("Segoe UI", 16, QFont::Bold));
+                } else {
+                    editBox->setFont (QFont ("Segoe UI", 13, QFont::Bold));
+                }
+
                 editBox->setStyleSheet ("QTextEdit { background-color: #F0F8FF; border: 2px solid #4682B4; padding: 6px; border-radius: 4px; }");
                 editBox->setLineWrapMode (QTextEdit::WidgetWidth);
                 editBox->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
@@ -290,8 +298,15 @@ private:
                 }
 
                 ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
-                label->setFont (QFont ("Segoe UI", 11));
-                label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");
+                
+                if (isTitle) {
+                    label->setFont (QFont ("Segoe UI", 15, QFont::Bold));
+                    label->setStyleSheet ("QLabel { color: #222222; padding: 6px; }");
+                } else {
+                    label->setFont (QFont ("Segoe UI", 11, QFont::Normal));
+                    label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");
+                }
+
                 label->setWordWrap (true);
                 
                 connect (label, &ClickableLabel::doubleClicked, this, [this, i]() {

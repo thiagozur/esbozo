@@ -28,7 +28,7 @@ public:
     }
 
     static QStringList getSupportedCommands() {
-        return {"rst;;", "del;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;", };
     }
 
     CommandResult processInput (const QString& input) {
@@ -112,6 +112,27 @@ public:
             block->setContent ("[Figura/Imagen]");
             createNewBlock(std::move (block));
             return CommandResult::BlockCreated;
+        }
+        else if (triggeredCommand == "cpar;;") {
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                if (dynamic_cast<ParagraphBlock*> (current)) {
+                    auto newBlock = std::make_unique<ParagraphBlock> (false);
+                    newBlock->setContent (textPayload);
+                    m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
+                }
+            }
+            return CommandResult::TextUpdated;
+        }
+        else if (triggeredCommand == "cttl;;" || triggeredCommand == "csttl;;") {
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                if (dynamic_cast<ParagraphBlock*> (current)) {
+                    auto newBlock = std::make_unique<ParagraphBlock> (true);
+                    QString contentToUse = textPayload.isEmpty() ? current->getContent() : textPayload;
+                    newBlock->setContent (contentToUse);
+                    m_document.setBlock (m_activeBlockIndex, std::move (newBlock));
+                }
+            }
+            return CommandResult::TextUpdated;
         }
 
         return CommandResult::None;

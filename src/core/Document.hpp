@@ -20,6 +20,11 @@ public:
         if (index > m_blocks.size()) index = m_blocks.size();
         m_blocks.insert (m_blocks.begin() + static_cast<std::ptrdiff_t> (index), std::move (block));
     }
+
+    void setBlock (size_t index, std::unique_ptr<Block> block) {
+        if (index < m_blocks.size())
+            m_blocks[index] = std::move (block);
+    }
     
     void removeBlock (size_t index) {
         if (index < m_blocks.size()) {

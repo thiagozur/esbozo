@@ -19,10 +19,6 @@ public:
 
     virtual BlockType getType() const = 0;
 
-    virtual void render (QPainter& painter, const QRectF& rect) = 0;
-
-    virtual qreal getHeight() const = 0;
-
     virtual QString toMarkdown() const = 0;
 
     virtual void setContent (const QString& content) = 0;
