@@ -27,51 +27,24 @@ public:
     }
 
     CommandResult processInput (const QString& input) {
-        QString trimmed = input.trimmed();
-        if (trimmed.isEmpty()) return CommandResult::None;
+        if (input.isEmpty()) return CommandResult::None;
 
-        auto checkTrailingCommand = [&] (const QString& cmdKeyword) -> bool {
-            return trimmed.endsWith (cmdKeyword) && trimmed != cmdKeyword;
-        };
-
-        QString textPayload = "";
+        QString textPayload = input;
         QString triggeredCommand = "";
 
-        if (trimmed == "res;;") {
-            triggeredCommand = "res;;";
-        } else if (trimmed == "sg;;") {
-            triggeredCommand = "sg;;";
-        } else if (trimmed == "ttl;;") {
-            triggeredCommand = "ttl;;";
-        } else if (trimmed == "sttl;;") {
-            triggeredCommand = "sttl;;";
-        } else if (trimmed == "par;;") {
-            triggeredCommand = "par;;";
-        } else if (trimmed == "grf;;") {
-            triggeredCommand = "grf;;";
-        } else if (trimmed == "ft;;") {
-            triggeredCommand = "ft;;";
-        } 
-        else {
-            QStringList possibleCmds = {"res;;", "sg;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
-            for (const QString& cmd : possibleCmds) {
-                if (trimmed.endsWith (cmd)) {
-                    triggeredCommand = cmd;
-                    textPayload = trimmed.left (trimmed.length() - cmd.length()).trimmed();
-                    break;
-                }
+        QStringList possibleCmds = {"rst;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+        for (const QString& cmd : possibleCmds) {
+            if (textPayload.trimmed().endsWith (cmd)) {
+                triggeredCommand = cmd;
+                int index = textPayload.lastIndexOf (cmd);
+                textPayload = textPayload.left (index).trimmed();
+                break;
             }
         }
 
-        if (!textPayload.isEmpty() || triggeredCommand.isEmpty()) {
-            QString contentToAdd = textPayload.isEmpty() ? input : textPayload;
+        if (!triggeredCommand.isEmpty() || !textPayload.isEmpty()) {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-                QString existing = current->getContent();
-                if (existing.isEmpty()) {
-                    current->setContent (contentToAdd);
-                } else {
-                    current->setContent (existing + " " + contentToAdd);
-                }
+                current->setContent (textPayload);
             }
             if (triggeredCommand.isEmpty()) {
                 return CommandResult::TextUpdated;
@@ -90,15 +63,11 @@ public:
             m_activeBlockIndex = m_document.getBlockCount() - 1;
         };
 
-        if (triggeredCommand == "res;;") {
+        if (triggeredCommand == "rst;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 current->setContent ("");
             }
             return CommandResult::BlockReset;
-        }
-        else if (triggeredCommand == "sg;;") {
-            createNewBlock(std::make_unique<ParagraphBlock> (false));
-            return CommandResult::SectionFinished;
         }
         else if (triggeredCommand == "ttl;;") {
             createNewBlock(std::make_unique<ParagraphBlock> (true));
@@ -126,5 +95,11 @@ public:
         }
 
         return CommandResult::None;
+    }
+
+    void setActiveBlockIndex (size_t index) {
+        if (index < m_document.getBlockCount()) {
+            m_activeBlockIndex = index;
+        }
     }
 };
