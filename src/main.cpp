@@ -77,6 +77,39 @@ public:
     }
 };
 
+class GraphLabel : public ClickableLabel {
+    Q_OBJECT
+private:
+    QPixmap m_original;
+    int m_lastWidth = -1;
+    static constexpr int kChrome = 2 * (8 + 1);
+
+public:
+    explicit GraphLabel (const QPixmap &pixmap, QWidget *parent = nullptr)
+        : ClickableLabel ("", parent), m_original (pixmap)
+    {
+        setAlignment (Qt::AlignCenter);
+        if (m_original.isNull()) {
+            setText ("[Error generando gráfico]");
+            setStyleSheet ("QLabel { color: #CC0000; font-weight: bold; padding: 6px; }");
+        } else {
+            setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
+        }
+    }
+
+    void setBoxWidth (int boxWidth) {
+        if (m_original.isNull()) return;
+
+        int pixWidth = qMax (50, boxWidth - kChrome);
+        if (pixWidth == m_lastWidth) return;
+        m_lastWidth = pixWidth;
+
+        QPixmap scaled = m_original.scaledToWidth (pixWidth, Qt::SmoothTransformation);
+        setPixmap (scaled);
+        setFixedSize (scaled.width() + kChrome, scaled.height() + kChrome);
+    }
+};
+
 enum class GraphWizardState {
     Idle,
     WaitingForType,
@@ -420,9 +453,9 @@ private:
         QPainter painter (&pixmap);
         painter.setRenderHint (QPainter::Antialiasing, true);
 
-        int plotX = 60;
+        int plotX = 65;
         int plotY = 30;
-        int plotW = targetWidth - 90;
+        int plotW = targetWidth - 95;
         int plotH = targetHeight - 80;
 
         painter.setPen (QPen (QColor ("#E0E0E0"), 1));
@@ -468,7 +501,7 @@ private:
             int py = mapY (yVal);
             painter.drawLine (plotX - 5, py, plotX, py);
             QString labelStr = QString::number (yVal, 'g', 3);
-            painter.drawText (plotX - 55, py - 8, 50, 15, Qt::AlignRight | Qt::AlignVCenter, labelStr);
+            painter.drawText (plotX - 60, py - 8, 52, 15, Qt::AlignRight | Qt::AlignVCenter, labelStr);
         }
 
         if (gBlock->getGraphType() == GraphType::Line) {
@@ -487,7 +520,13 @@ private:
         painter.setPen (Qt::black);
         painter.setFont (QFont ("Segoe UI", 9));
         painter.drawText (plotX + plotW / 2 - 40, targetHeight - 20, gBlock->getSeriesX().name);
-        
+
+        painter.save();
+        painter.translate (15, plotY + plotH / 2);
+        painter.rotate (-90);
+        painter.drawText (-40, 0, 80, 20, Qt::AlignCenter, gBlock->getSeriesY().name);
+        painter.restore();
+
         painter.setFont (QFont ("Segoe UI", 10, QFont::Bold));
         painter.drawText (plotX, targetHeight - 8, gBlock->getDescription());
 
@@ -608,6 +647,8 @@ private:
             QLayoutItem *item = m_documentLayout->itemAt (i);
             if (auto *img = qobject_cast<ImageLabel*> (item->widget())) {
                 img->setBoxWidth (boxWidth);
+            } else if (auto *gr = qobject_cast<GraphLabel*> (item->widget())) {
+                gr->setBoxWidth (boxWidth);
             }
         }
     }
@@ -731,14 +772,12 @@ private:
                     m_documentLayout->addWidget (label, 0, Qt::AlignCenter);
                 } else if (type == BlockType::Graph) {
                     if (const GraphBlock* gBlock = dynamic_cast<const GraphBlock*> (block)) {
-                        QPixmap graphPix = renderGraphPixmap (gBlock, 600, 350);
+                        QPixmap graphPix = renderGraphPixmap (gBlock, 600, 450);
 
-                        ClickableLabel *graphLabel = new ClickableLabel("", m_containerWidget);
-                        graphLabel->setPixmap (graphPix);
+                        GraphLabel *graphLabel = new GraphLabel (graphPix, m_containerWidget);
                         graphLabel->setAlignment (Qt::AlignCenter);
-                        graphLabel->setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
 
-                        connect (graphLabel, &ClickableLabel::doubleClicked, this, [this, i]() {
+                        connect (graphLabel, &GraphLabel::doubleClicked, this, [this, i]() {
                             saveCurrentContent();
                             m_activeBlockIndex = i;
                             refreshUI();
