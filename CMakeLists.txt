@@ -12,8 +12,19 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-add_executable(Esbozo
+set(SOURCES
     src/main.cpp
+)
+
+set(HEADERS
+    src/core/Block.hpp
+    src/core/ParagraphBlock.hpp
+    src/core/GraphBlock.hpp
+)
+
+add_executable(Esbozo
+    ${SOURCES}
+    ${HEADERS}
 )
 
 target_link_libraries(Esbozo PRIVATE
