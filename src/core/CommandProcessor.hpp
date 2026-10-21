@@ -28,53 +28,103 @@ public:
 
     CommandResult processInput (const QString& input) {
         QString trimmed = input.trimmed();
+        if (trimmed.isEmpty()) return CommandResult::None;
+
+        auto checkTrailingCommand = [&] (const QString& cmdKeyword) -> bool {
+            return trimmed.endsWith (cmdKeyword) && trimmed != cmdKeyword;
+        };
+
+        QString textPayload = "";
+        QString triggeredCommand = "";
 
         if (trimmed == "res;;") {
+            triggeredCommand = "res;;";
+        } else if (trimmed == "sg;;") {
+            triggeredCommand = "sg;;";
+        } else if (trimmed == "ttl;;") {
+            triggeredCommand = "ttl;;";
+        } else if (trimmed == "sttl;;") {
+            triggeredCommand = "sttl;;";
+        } else if (trimmed == "par;;") {
+            triggeredCommand = "par;;";
+        } else if (trimmed == "grf;;") {
+            triggeredCommand = "grf;;";
+        } else if (trimmed == "ft;;") {
+            triggeredCommand = "ft;;";
+        } 
+        else {
+            QStringList possibleCmds = {"res;;", "sg;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+            for (const QString& cmd : possibleCmds) {
+                if (trimmed.endsWith (cmd)) {
+                    triggeredCommand = cmd;
+                    textPayload = trimmed.left (trimmed.length() - cmd.length()).trimmed();
+                    break;
+                }
+            }
+        }
+
+        if (!textPayload.isEmpty() || triggeredCommand.isEmpty()) {
+            QString contentToAdd = textPayload.isEmpty() ? input : textPayload;
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                QString existing = current->getContent();
+                if (existing.isEmpty()) {
+                    current->setContent (contentToAdd);
+                } else {
+                    current->setContent (existing + " " + contentToAdd);
+                }
+            }
+            if (triggeredCommand.isEmpty()) {
+                return CommandResult::TextUpdated;
+            }
+        }
+
+        auto createNewBlock = [&] (std::unique_ptr<Block> newBlock) {
+            if (m_document.getBlockCount() == 1) {
+                if (Block* current = m_document.getBlock (0)) {
+                    if (current->getContent().isEmpty()) {
+                        m_document.clear();
+                    }
+                }
+            }
+            m_document.addBlock (std::move (newBlock));
+            m_activeBlockIndex = m_document.getBlockCount() - 1;
+        };
+
+        if (triggeredCommand == "res;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 current->setContent ("");
             }
             return CommandResult::BlockReset;
         }
-
-        if (trimmed == "sg;;") {
-            m_document.addBlock (std::make_unique<ParagraphBlock> (false));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+        else if (triggeredCommand == "sg;;") {
+            createNewBlock(std::make_unique<ParagraphBlock> (false));
             return CommandResult::SectionFinished;
         }
-
-        if (trimmed == "ttl;;") {
-            m_document.addBlock (std::make_unique<ParagraphBlock> (true));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+        else if (triggeredCommand == "ttl;;") {
+            createNewBlock(std::make_unique<ParagraphBlock> (true));
             return CommandResult::BlockCreated;
         }
-        else if (trimmed == "sttl;;") {
+        else if (triggeredCommand == "sttl;;") {
             auto block = std::make_unique<ParagraphBlock> (true);
             block->setContent ("Subtitle");
-            m_document.addBlock (std::move (block));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+            createNewBlock(std::move (block));
             return CommandResult::BlockCreated;
         }
-        else if (trimmed == "par;;") {
-            m_document.addBlock (std::make_unique<ParagraphBlock> (false));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+        else if (triggeredCommand == "par;;") {
+            createNewBlock(std::make_unique<ParagraphBlock> (false));
             return CommandResult::BlockCreated;
         }
-        else if (trimmed == "grf;;") {
-            m_document.addBlock (std::make_unique<GraphBlock> ("Gráfico"));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+        else if (triggeredCommand == "grf;;") {
+            createNewBlock(std::make_unique<GraphBlock> ("Gráfico"));
             return CommandResult::BlockCreated;
         }
-        else if (trimmed == "ft;;") {
+        else if (triggeredCommand == "ft;;") {
             auto block = std::make_unique<ParagraphBlock> (false);
             block->setContent ("[Figura/Imagen]");
-            m_document.addBlock (std::move (block));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+            createNewBlock(std::move (block));
             return CommandResult::BlockCreated;
         }
 
-        if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-            current->setContent (input);
-        }
-        return CommandResult::TextUpdated;
+        return CommandResult::None;
     }
 };
