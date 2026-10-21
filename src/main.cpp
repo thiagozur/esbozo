@@ -105,7 +105,7 @@ protected:
                 QString text = m_activeTextEdit->toPlainText();
                 QString trimmedText = text.trimmed();
                 
-                QStringList possibleCmds = {"rst;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+                QStringList possibleCmds = CommandProcessor::getSupportedCommands();
                 bool hasCommand = false;
                 for (const QString& cmd : possibleCmds) {
                     if (trimmedText.endsWith (cmd)) {
@@ -155,7 +155,7 @@ private slots:
         m_processor.setActiveBlockIndex (m_activeBlockIndex);
         CommandResult result = m_processor.processInput (text);
 
-        if (result == CommandResult::BlockCreated || result == CommandResult::SectionFinished) {
+        if (result == CommandResult::BlockCreated || result == CommandResult::SectionFinished || result == CommandResult::BlockDeleted) {
             m_activeBlockIndex = m_processor.getActiveBlockIndex();
         }
 

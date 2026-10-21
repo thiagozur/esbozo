@@ -10,6 +10,7 @@ enum class CommandResult {
     None,
     BlockCreated,
     BlockReset,
+    BlockDeleted,
     SectionFinished,
     TextUpdated
 };
@@ -26,13 +27,17 @@ public:
         }
     }
 
+    static QStringList getSupportedCommands() {
+        return {"rst;;", "del;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+    }
+
     CommandResult processInput (const QString& input) {
         if (input.isEmpty()) return CommandResult::None;
 
         QString textPayload = input;
         QString triggeredCommand = "";
 
-        QStringList possibleCmds = {"rst;;", "ttl;;", "sttl;;", "par;;", "grf;;", "ft;;"};
+        QStringList possibleCmds = getSupportedCommands();
         for (const QString& cmd : possibleCmds) {
             if (textPayload.trimmed().endsWith (cmd)) {
                 triggeredCommand = cmd;
@@ -72,6 +77,17 @@ public:
                 current->setContent ("");
             }
             return CommandResult::BlockReset;
+        }
+        else if (triggeredCommand == "del;;") {
+            if (m_document.getBlockCount() > 1) {
+                m_document.removeBlock (m_activeBlockIndex);
+                if (m_activeBlockIndex > 0)
+                    m_activeBlockIndex--;
+            } else {
+                if (Block* current = m_document.getBlock (m_activeBlockIndex))
+                    current->setContent ("");
+            }
+            return CommandResult::BlockDeleted;
         }
         else if (triggeredCommand == "ttl;;") {
             createNewBlock(std::make_unique<ParagraphBlock> (true));

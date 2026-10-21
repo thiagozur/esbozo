@@ -20,6 +20,12 @@ public:
         if (index > m_blocks.size()) index = m_blocks.size();
         m_blocks.insert (m_blocks.begin() + static_cast<std::ptrdiff_t> (index), std::move (block));
     }
+    
+    void removeBlock (size_t index) {
+        if (index < m_blocks.size()) {
+            m_blocks.erase (m_blocks.begin() + static_cast<std::ptrdiff_t> (index));
+        }
+    }
 
     size_t getBlockCount() const {
         return m_blocks.size();
