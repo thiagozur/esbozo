@@ -52,15 +52,19 @@ public:
         }
 
         auto createNewBlock = [&] (std::unique_ptr<Block> newBlock) {
+            size_t insertIndex = m_activeBlockIndex + 1;
+
             if (m_document.getBlockCount() == 1) {
                 if (Block* current = m_document.getBlock (0)) {
                     if (current->getContent().isEmpty()) {
                         m_document.clear();
+                        insertIndex = 0;
                     }
                 }
             }
-            m_document.addBlock (std::move (newBlock));
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+
+            m_document.insertBlock (insertIndex, std::move (newBlock));
+            m_activeBlockIndex = insertIndex;
         };
 
         if (triggeredCommand == "rst;;") {
@@ -95,6 +99,10 @@ public:
         }
 
         return CommandResult::None;
+    }
+
+    size_t getActiveBlockIndex() const {
+        return m_activeBlockIndex;
     }
 
     void setActiveBlockIndex (size_t index) {

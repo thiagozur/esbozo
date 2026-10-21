@@ -82,6 +82,11 @@ protected:
     bool eventFilter (QObject *obj, QEvent *event) override {
         if (obj == m_activeTextEdit && event->type() == QEvent::KeyPress) {
             QKeyEvent *keyEvent = static_cast<QKeyEvent*> (event);
+
+            if (keyEvent->key() == Qt::Key_Tab && keyEvent->modifiers() == Qt::NoModifier) {
+                m_activeTextEdit->moveCursor (QTextCursor::End);
+                return true;
+            }
             
             if (keyEvent->modifiers() == Qt::ControlModifier) {
                 if (keyEvent->key() == Qt::Key_Comma || keyEvent->key() == Qt::Key_Up) {
@@ -151,7 +156,7 @@ private slots:
         CommandResult result = m_processor.processInput (text);
 
         if (result == CommandResult::BlockCreated || result == CommandResult::SectionFinished) {
-            m_activeBlockIndex = m_document.getBlockCount() - 1;
+            m_activeBlockIndex = m_processor.getActiveBlockIndex();
         }
 
         refreshUI();

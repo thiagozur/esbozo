@@ -16,6 +16,11 @@ public:
         m_blocks.push_back(std::move(block));
     }
 
+    void insertBlock (size_t index, std::unique_ptr<Block> block) {
+        if (index > m_blocks.size()) index = m_blocks.size();
+        m_blocks.insert (m_blocks.begin() + static_cast<std::ptrdiff_t> (index), std::move (block));
+    }
+
     size_t getBlockCount() const {
         return m_blocks.size();
     }
