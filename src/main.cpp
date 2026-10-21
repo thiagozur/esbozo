@@ -11,10 +11,26 @@
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QTimer>
+#include <QScrollBar>
 #include <QAbstractTextDocumentLayout>
 
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
+
+class ClickableLabel : public QLabel {
+    Q_OBJECT
+public:
+    explicit ClickableLabel (const QString &text, QWidget *parent = nullptr) : QLabel (text, parent) {}
+
+signals:
+    void doubleClicked();
+
+protected:
+    void mouseDoubleClickEvent (QMouseEvent *event) override {
+        QLabel::mouseDoubleClickEvent (event);
+        emit doubleClicked();
+    }
+};
 
 class EsbozoWindow : public QMainWindow {
     Q_OBJECT
@@ -48,6 +64,7 @@ public:
         m_containerWidget = new QWidget();
         m_documentLayout = new QVBoxLayout (m_containerWidget);
         m_documentLayout->setAlignment (Qt::AlignTop);
+        m_documentLayout->setSpacing (16);
         m_scrollArea->setWidget (m_containerWidget);
 
         mainLayout->addWidget (m_scrollArea);
@@ -119,6 +136,11 @@ protected:
         QMainWindow::keyPressEvent (event);
     }
 
+    void resizeEvent (QResizeEvent *event) override {
+        QMainWindow::resizeEvent (event);
+        centerActiveBlock();
+    }
+
 private slots:
     void handleInputSubmitted() {
         if (!m_activeTextEdit) return;
@@ -137,12 +159,12 @@ private slots:
 
 private:
     void saveCurrentContent() {
-    if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
-        if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-            current->setContent (m_activeTextEdit->toPlainText());
+        if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
+            if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
+                current->setContent (m_activeTextEdit->toPlainText());
+            }
         }
     }
-}
 
     void saveAndNavigate(int delta) {
         saveCurrentContent();
@@ -151,6 +173,49 @@ private:
         if (newIndex >= 0 && newIndex < static_cast<long long> (m_document.getBlockCount())) {
             m_activeBlockIndex = static_cast<size_t> (newIndex);
             refreshUI();
+        }
+    }
+
+    void centerActiveBlock() {
+        if (!m_containerWidget || !m_scrollArea) return;
+        
+        int viewportHeight = m_scrollArea->viewport()->height();
+        if (viewportHeight <= 0) return;
+
+        int count = static_cast<int> (m_document.getBlockCount());
+        if (count == 0) return;
+
+        m_containerWidget->adjustSize();
+
+        QWidget *activeWidget = nullptr;
+        int hAbove = 0;
+        int spacing = m_documentLayout->spacing();
+
+        for (int i = 0; i < count; ++i) {
+            QLayoutItem *item = m_documentLayout->itemAt (i);
+            if (!item || !item->widget()) continue;
+            QWidget *w = item->widget();
+            if (static_cast<size_t> (i) < m_activeBlockIndex) {
+                hAbove += w->height() + spacing;
+            } else if (static_cast<size_t> (i) == m_activeBlockIndex) {
+                activeWidget = w;
+                break;
+            }
+        }
+
+        int hActive = activeWidget ? activeWidget->height() : 50;
+        int idealY = (viewportHeight / 2) - (hActive / 2);
+        int topMargin = qMax (0, idealY - hAbove);
+        int bottomMargin = qMax (0, (viewportHeight / 2) - (hActive / 2));
+
+        m_documentLayout->setContentsMargins (20, topMargin, 20, bottomMargin);
+        m_containerWidget->adjustSize();
+
+        if (topMargin == 0 && activeWidget) {
+            int targetScroll = activeWidget->y() + (activeWidget->height() / 2) - (viewportHeight / 2);
+            m_scrollArea->verticalScrollBar()->setValue (targetScroll);
+        } else {
+            m_scrollArea->verticalScrollBar()->setValue (0);
         }
     }
 
@@ -181,11 +246,12 @@ private:
                 editBox->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
                 editBox->setVerticalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
 
-                auto updateHeight = [editBox]() {
+                auto updateHeight = [this, editBox]() {
                     int docHeight = static_cast<int> (editBox->document()->size().height());
                     int newHeight = qMax (50, docHeight + 16);
                     editBox->setMinimumHeight (newHeight);
                     editBox->setMaximumHeight (newHeight);
+                    centerActiveBlock();
                 };
 
                 connect (editBox->document()->documentLayout(),
@@ -218,15 +284,26 @@ private:
                     content.replace ("\n", "<br>");
                 }
 
-                QLabel *label = new QLabel (content, m_containerWidget);
+                ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
                 label->setFont (QFont ("Segoe UI", 11));
                 label->setStyleSheet ("QLabel { color: #555555; padding: 6px; }");
                 label->setWordWrap (true);
+                
+                connect (label, &ClickableLabel::doubleClicked, this, [this, i]() {
+                    saveCurrentContent();
+                    m_activeBlockIndex = i;
+                    refreshUI();
+                });
+
                 m_documentLayout->addWidget (label);
             }
         }
 
         m_statusLabel->setText (QString ("Bloque activo: %1 / %2").arg (m_activeBlockIndex + 1).arg (count));
+        
+        QTimer::singleShot (0, this, [this]() {
+            centerActiveBlock();
+        });
     }
 };
 
