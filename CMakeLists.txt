@@ -21,6 +21,7 @@ set(HEADERS
     src/core/ParagraphBlock.hpp
     src/core/GraphBlock.hpp
     src/core/Document.hpp
+    src/core/CommandProcessor.hpp
 )
 
 add_executable(Esbozo
