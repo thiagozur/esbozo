@@ -229,6 +229,17 @@ private slots:
 
             if (trimmedText == "can;;") {
                 m_graphState = GraphWizardState::Idle;
+                if (m_document.getBlockCount() > 1) {
+                    size_t indexToDelete = m_activeBlockIndex;
+                    if (m_activeBlockIndex > 0) {
+                        m_activeBlockIndex--;
+                    }
+                    m_document.removeBlock (indexToDelete);
+                } else {
+                    if (auto* currentBlock = m_document.getBlock (m_activeBlockIndex)) {
+                        currentBlock->setContent("");
+                    }
+                }
                 refreshUI();
                 return;
             }
@@ -239,8 +250,10 @@ private slots:
                         m_tempGraphType = GraphType::Line;
                     else if (trimmedText == "sct") 
                         m_tempGraphType = GraphType::Scatter;
-                    else
+                    else {
+                        m_activeTextEdit->clear();
                         return;
+                    }
                     
                     m_graphState = GraphWizardState::WaitingForSource;
                     updateGraphPrompt("csv (archivo) o man (entrada manual)");
@@ -254,10 +267,17 @@ private slots:
                         m_tempGraphSource = GraphSource::Manual;
                         m_graphState = GraphWizardState::WaitingForXName;
                         updateGraphPrompt ("Nombre de la serie X");
+                    } else {
+                        m_activeTextEdit->clear();
+                        return;
                     }
                     break;
 
                 case GraphWizardState::WaitingForXName:
+                    if (trimmedText.isEmpty()) {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
                     m_tempXName = trimmedText;
                     m_graphState = GraphWizardState::WaitingForXValues;
                     updateGraphPrompt ("Valores de X separados por comas");
@@ -265,11 +285,19 @@ private slots:
 
                 case GraphWizardState::WaitingForXValues:
                     m_tempXVals = parseCommaValues (trimmedText);
+                    if (m_tempXVals.isEmpty()) {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
                     m_graphState = GraphWizardState::WaitingForYName;
                     updateGraphPrompt ("Nombre de la serie Y");
                     break;
 
                 case GraphWizardState::WaitingForYName:
+                    if (trimmedText.isEmpty()) {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
                     m_tempYName = trimmedText;
                     m_graphState = GraphWizardState::WaitingForYValues;
                     updateGraphPrompt ("Valores de Y separados por comas");
@@ -277,6 +305,10 @@ private slots:
 
                 case GraphWizardState::WaitingForYValues:
                     m_tempYVals = parseCommaValues (trimmedText);
+                    if (m_tempYVals.isEmpty() || m_tempYVals.size() != m_tempXVals.size()) {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
                     m_graphState = GraphWizardState::WaitingForXScale;
                     updateGraphPrompt ("lin (eje x lineal) o log (eje x logarítmico)");
                     break;
@@ -286,8 +318,10 @@ private slots:
                         m_tempXScale = AxisScale::Linear;
                     else if (trimmedText == "log")
                         m_tempXScale = AxisScale::Log;
-                    else
+                    else {
+                        m_activeTextEdit->clear();
                         return;
+                    }
 
                     m_graphState = GraphWizardState::WaitingForYScale;
                     updateGraphPrompt ("lin (eje y lineal) o log (eje y logarítmico)");
@@ -298,8 +332,10 @@ private slots:
                         m_tempYScale = AxisScale::Linear;
                     else if (trimmedText == "log")
                         m_tempYScale = AxisScale::Log;
-                    else
+                    else {
+                        m_activeTextEdit->clear();
                         return;
+                    }
 
                     m_graphState = GraphWizardState::WaitingForDescription;
                     updateGraphPrompt ("descripción de la figura");
@@ -384,8 +420,13 @@ private:
         QPainter painter (&pixmap);
         painter.setRenderHint (QPainter::Antialiasing, true);
 
+        int plotX = 60;
+        int plotY = 30;
+        int plotW = targetWidth - 90;
+        int plotH = targetHeight - 80;
+
         painter.setPen (QPen (QColor ("#E0E0E0"), 1));
-        painter.drawRect (50, 30, targetWidth - 70, targetHeight - 70);
+        painter.drawRect (plotX, plotY, plotW, plotH);
 
         const auto& xVals = gBlock->getSeriesX().values;
         const auto& yVals = gBlock->getSeriesY().values;
@@ -406,17 +447,29 @@ private:
         if (qFuzzyCompare (minY, maxY))
             maxY += 1.0;
 
-        int plotX = 50;
-        int plotY = 30;
-        int plotW = targetWidth - 70;
-        int plotH = targetHeight - 70;
-
         auto mapX = [&] (double val) {
             return plotX + static_cast<int> ((val - minX) / (maxX - minX) * plotW);
         };
         auto mapY = [&] (double val) {
             return plotY + plotH - static_cast<int> ((val - minY) / (maxY - minY) * plotH);
         };
+
+        painter.setPen (QPen(Qt::black, 1));
+        painter.setFont (QFont ("Segoe UI", 8));
+
+        for (double xVal : xVals) {
+            int px = mapX (xVal);
+            painter.drawLine (px, plotY + plotH, px, plotY + plotH + 5);
+            QString labelStr = QString::number (xVal, 'g', 3);
+            painter.drawText (px - 15, plotY + plotH + 8, 30, 15, Qt::AlignCenter, labelStr);
+        }
+
+        for (double yVal : yVals) {
+            int py = mapY (yVal);
+            painter.drawLine (plotX - 5, py, plotX, py);
+            QString labelStr = QString::number (yVal, 'g', 3);
+            painter.drawText (plotX - 55, py - 8, 50, 15, Qt::AlignRight | Qt::AlignVCenter, labelStr);
+        }
 
         if (gBlock->getGraphType() == GraphType::Line) {
             painter.setPen (QPen (QColor ("#4682B4"), 2));
@@ -433,10 +486,10 @@ private:
 
         painter.setPen (Qt::black);
         painter.setFont (QFont ("Segoe UI", 9));
-        painter.drawText (plotX + plotW / 2 - 30, targetHeight - 20, gBlock->getSeriesX().name);
+        painter.drawText (plotX + plotW / 2 - 40, targetHeight - 20, gBlock->getSeriesX().name);
         
         painter.setFont (QFont ("Segoe UI", 10, QFont::Bold));
-        painter.drawText (plotX, targetHeight - 5, gBlock->getDescription());
+        painter.drawText (plotX, targetHeight - 8, gBlock->getDescription());
 
         return pixmap;
     }
