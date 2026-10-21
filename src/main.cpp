@@ -20,9 +20,13 @@
 #include <QPen>
 #include <QColor>
 #include <QFont>
+#include <QTextStream>
+#include <memory>
+#include <limits>
 
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
+#include "core/GraphRenderer.hpp"
 
 class ClickableLabel : public QLabel {
     Q_OBJECT
@@ -80,33 +84,30 @@ public:
 class GraphLabel : public ClickableLabel {
     Q_OBJECT
 private:
-    QPixmap m_original;
+    std::shared_ptr<const GraphBlock> m_graph;
     int m_lastWidth = -1;
+    qreal m_lastDpr = 0.0;
     static constexpr int kChrome = 2 * (8 + 1);
 
 public:
-    explicit GraphLabel (const QPixmap &pixmap, QWidget *parent = nullptr)
-        : ClickableLabel ("", parent), m_original (pixmap)
+    explicit GraphLabel (std::shared_ptr<const GraphBlock> graph, QWidget *parent = nullptr)
+        : ClickableLabel ("", parent), m_graph (std::move (graph))
     {
         setAlignment (Qt::AlignCenter);
-        if (m_original.isNull()) {
-            setText ("[Error generando gráfico]");
-            setStyleSheet ("QLabel { color: #CC0000; font-weight: bold; padding: 6px; }");
-        } else {
-            setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
-        }
+        setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
     }
 
     void setBoxWidth (int boxWidth) {
-        if (m_original.isNull()) return;
-
-        int pixWidth = qMax (50, boxWidth - kChrome);
-        if (pixWidth == m_lastWidth) return;
+        int pixWidth = qMax (260, boxWidth - kChrome);
+        qreal dpr = devicePixelRatioF();
+        if (pixWidth == m_lastWidth && dpr == m_lastDpr)
+            return;
         m_lastWidth = pixWidth;
+        m_lastDpr = dpr;
 
-        QPixmap scaled = m_original.scaledToWidth (pixWidth, Qt::SmoothTransformation);
-        setPixmap (scaled);
-        setFixedSize (scaled.width() + kChrome, scaled.height() + kChrome);
+        int pixHeight = pixWidth * 13 / 20;
+        setPixmap (GraphRenderer::render (*m_graph, pixWidth, pixHeight, dpr));
+        setFixedSize (pixWidth + kChrome, pixHeight + kChrome);
     }
 };
 
@@ -136,6 +137,7 @@ private:
     GraphSource m_tempGraphSource = GraphSource::Manual;
     QString m_tempXName, m_tempYName;
     QVector<double> m_tempXVals, m_tempYVals;
+    QVector<DataSeries> m_tempYSeries;
     AxisScale m_tempXScale = AxisScale::Linear;
     AxisScale m_tempYScale = AxisScale::Linear;
 
@@ -342,6 +344,7 @@ private slots:
                         m_activeTextEdit->clear();
                         return;
                     }
+                    m_tempYSeries = { DataSeries{ m_tempYName, m_tempYVals } };
                     m_graphState = GraphWizardState::WaitingForXScale;
                     updateGraphPrompt ("lin (eje x lineal) o log (eje x logarítmico)");
                     break;
@@ -380,7 +383,7 @@ private slots:
                             gBlock->setGraphType (m_tempGraphType);
                             gBlock->setGraphSource (m_tempGraphSource);
                             gBlock->setSeriesX (m_tempXName, m_tempXVals);
-                            gBlock->setSeriesY (m_tempYName, m_tempYVals);
+                            gBlock->setSeriesYList (m_tempYSeries);
                             gBlock->setScales (m_tempXScale, m_tempYScale);
                             gBlock->setDescription (trimmedText);
                         }
@@ -446,91 +449,37 @@ private slots:
     }
 
 private:
-    QPixmap renderGraphPixmap (const GraphBlock* gBlock, int targetWidth, int targetHeight) {
-        QPixmap pixmap (targetWidth, targetHeight);
-        pixmap.fill (Qt::white);
-
-        QPainter painter (&pixmap);
-        painter.setRenderHint (QPainter::Antialiasing, true);
-
-        int plotX = 65;
-        int plotY = 30;
-        int plotW = targetWidth - 95;
-        int plotH = targetHeight - 80;
-
-        painter.setPen (QPen (QColor ("#E0E0E0"), 1));
-        painter.drawRect (plotX, plotY, plotW, plotH);
-
-        const auto& xVals = gBlock->getSeriesX().values;
-        const auto& yVals = gBlock->getSeriesY().values;
-        if (xVals.isEmpty() || yVals.isEmpty() || xVals.size() != yVals.size()) {
-            painter.setPen (Qt::black);
-            painter.drawText (pixmap.rect(), Qt::AlignCenter, "Sin datos para graficar");
-            return pixmap;
+    void discardActiveBlock() {
+        if (m_document.getBlockCount() > 1) {
+            size_t indexToDelete = m_activeBlockIndex;
+            if (m_activeBlockIndex > 0) m_activeBlockIndex--;
+            m_document.removeBlock (indexToDelete);
+        } else if (Block* b = m_document.getBlock (m_activeBlockIndex)) {
+            b->setContent ("");
         }
+        refreshUI();
+    }
 
-        double minX = xVals[0], maxX = xVals[0];
-        double minY = yVals[0], maxY = yVals[0];
-        for (int i = 0; i < xVals.size(); ++i) {
-            minX = qMin (minX, xVals[i]); maxX = qMax (maxX, xVals[i]);
-            minY = qMin (minY, yVals[i]); maxY = qMax (maxY, yVals[i]);
+    bool navigationLocked() const {
+        return m_graphState != GraphWizardState::Idle;
+    }
+
+    void showLockedMessage() {
+        QString previous = m_statusLabel->text();
+        m_statusLabel->setText ("Terminá el gráfico o cancelalo con 'can;;' antes de cambiar de bloque");
+        QTimer::singleShot (2500, this, [this, previous]() {
+            m_statusLabel->setText (previous);
+        });
+    }
+
+    void activateBlock (size_t index) {
+        if (navigationLocked()) {
+            showLockedMessage();
+            return;
         }
-        if (qFuzzyCompare (minX, maxX))
-            maxX += 1.0;
-        if (qFuzzyCompare (minY, maxY))
-            maxY += 1.0;
-
-        auto mapX = [&] (double val) {
-            return plotX + static_cast<int> ((val - minX) / (maxX - minX) * plotW);
-        };
-        auto mapY = [&] (double val) {
-            return plotY + plotH - static_cast<int> ((val - minY) / (maxY - minY) * plotH);
-        };
-
-        painter.setPen (QPen(Qt::black, 1));
-        painter.setFont (QFont ("Segoe UI", 8));
-
-        for (double xVal : xVals) {
-            int px = mapX (xVal);
-            painter.drawLine (px, plotY + plotH, px, plotY + plotH + 5);
-            QString labelStr = QString::number (xVal, 'g', 3);
-            painter.drawText (px - 15, plotY + plotH + 8, 30, 15, Qt::AlignCenter, labelStr);
-        }
-
-        for (double yVal : yVals) {
-            int py = mapY (yVal);
-            painter.drawLine (plotX - 5, py, plotX, py);
-            QString labelStr = QString::number (yVal, 'g', 3);
-            painter.drawText (plotX - 60, py - 8, 52, 15, Qt::AlignRight | Qt::AlignVCenter, labelStr);
-        }
-
-        if (gBlock->getGraphType() == GraphType::Line) {
-            painter.setPen (QPen (QColor ("#4682B4"), 2));
-            for (int i = 0; i < xVals.size() - 1; ++i) {
-                painter.drawLine (mapX (xVals[i]), mapY (yVals[i]), mapX (xVals[i+1]), mapY (yVals[i+1]));
-            }
-        } else {
-            painter.setBrush (QColor("#E67E22"));
-            painter.setPen (Qt::NoPen);
-            for (int i = 0; i < xVals.size(); ++i) {
-                painter.drawEllipse (QPoint (mapX (xVals[i]), mapY (yVals[i])), 4, 4);
-            }
-        }
-
-        painter.setPen (Qt::black);
-        painter.setFont (QFont ("Segoe UI", 9));
-        painter.drawText (plotX + plotW / 2 - 40, targetHeight - 20, gBlock->getSeriesX().name);
-
-        painter.save();
-        painter.translate (15, plotY + plotH / 2);
-        painter.rotate (-90);
-        painter.drawText (-40, 0, 80, 20, Qt::AlignCenter, gBlock->getSeriesY().name);
-        painter.restore();
-
-        painter.setFont (QFont ("Segoe UI", 10, QFont::Bold));
-        painter.drawText (plotX, targetHeight - 8, gBlock->getDescription());
-
-        return pixmap;
+        saveCurrentContent();
+        m_activeBlockIndex = index;
+        refreshUI();
     }
 
     void updateGraphPrompt (const QString& promptText) {
@@ -554,41 +503,64 @@ private:
 
     bool parseCsvFile (const QString& path) {
         QFile file (path);
-        if (!file.open (QIODevice::ReadOnly | QIODevice::Text)) {
+        if (!file.open (QIODevice::ReadOnly | QIODevice::Text))
             return false;
-        }
 
         QTextStream in (&file);
-        if (in.atEnd()) return false;
+        if (in.atEnd())
+            return false;
 
-        QString headerLine = in.readLine();
-        QStringList headers = headerLine.split (QRegularExpression ("[,;\\t]"), Qt::SkipEmptyParts);
-        if (headers.size() < 2) return false;
+        const QRegularExpression sep ("[,;\\t]");
+        const double nan = std::numeric_limits<double>::quiet_NaN();
 
-        m_tempXName = headers[0].trimmed();
-        m_tempYName = headers[1].trimmed();
+        QStringList headers = in.readLine().split (sep);
+        if (headers.size() < 2)
+            return false;
+        for (QString& h : headers)
+            h = h.trimmed();
 
+        m_tempXName = headers[0];
         m_tempXVals.clear();
-        m_tempYVals.clear();
+        m_tempYSeries.clear();
+
+        for (int c = 1; c < headers.size(); ++c) {
+            DataSeries s;
+            s.name = headers[c].isEmpty() ? QString ("Serie %1").arg (c) : headers[c];
+            m_tempYSeries.append (s);
+        }
 
         while (!in.atEnd()) {
             QString line = in.readLine().trimmed();
-            if (line.isEmpty()) continue;
+            if (line.isEmpty())
+                continue;
 
-            QStringList parts = line.split (QRegularExpression ("[,;\\t]"), Qt::SkipEmptyParts);
-            if (parts.size() >= 2) {
-                bool okX = false, okY = false;
-                double xVal = parts[0].trimmed().toDouble (&okX);
-                double yVal = parts[1].trimmed().toDouble (&okY);
-                if (okX && okY) {
-                    m_tempXVals.append (xVal);
-                    m_tempYVals.append (yVal);
-                }
+            QStringList parts = line.split (sep);
+            bool okX = false;
+            double x = parts[0].trimmed().toDouble (&okX);
+            if (!okX)
+                continue;
+
+            m_tempXVals.append (x);
+            for (int c = 0; c < m_tempYSeries.size(); ++c) {
+                bool ok = false;
+                double y = (c + 1 < parts.size()) ? parts[c + 1].trimmed().toDouble (&ok) : nan;
+                m_tempYSeries[c].values.append (ok ? y : nan);
             }
         }
-
         file.close();
-        return !m_tempXVals.isEmpty() && !m_tempYVals.isEmpty();
+
+        for (int c = m_tempYSeries.size() - 1; c >= 0; --c) {
+            bool any = false;
+            for (double v : m_tempYSeries[c].values)
+                if (std::isfinite (v)) {
+                    any = true;
+                    break;
+                }
+            if (!any)
+                m_tempYSeries.removeAt (c);
+        }
+
+        return !m_tempXVals.isEmpty() && !m_tempYSeries.isEmpty();
     }
 
     void openCsvFileDialog() {
@@ -610,18 +582,20 @@ private:
                 QString path = files.first();
                 if (parseCsvFile (path)) {
                     m_graphState = GraphWizardState::WaitingForXScale;
-                    updateGraphPrompt ("Escala eje X: escribe 'lin' o 'log'...");
+                    updateGraphPrompt (QString ("CSV cargado (%1 series Y). Escala eje X: 'lin' o 'log'").arg (m_tempYSeries.size()));
                 } else {
                     updateGraphPrompt ("Error al leer el CSV. Escribe 'can;;' para cancelar o reintenta.");
                 }
             }
         } else {
             m_graphState = GraphWizardState::Idle;
-            refreshUI();
+            discardActiveBlock();
         }
     }
 
     void saveCurrentContent() {
+        if (navigationLocked())
+            return;
         if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 current->setContent (m_activeTextEdit->toPlainText());
@@ -629,7 +603,11 @@ private:
         }
     }
 
-    void saveAndNavigate(int delta) {
+    void saveAndNavigate (int delta) {
+        if (navigationLocked()) {
+            showLockedMessage();
+            return;
+        }
         saveCurrentContent();
 
         long long newIndex = static_cast<long long>(m_activeBlockIndex) + delta;
@@ -648,7 +626,7 @@ private:
             if (auto *img = qobject_cast<ImageLabel*> (item->widget())) {
                 img->setBoxWidth (boxWidth);
             } else if (auto *gr = qobject_cast<GraphLabel*> (item->widget())) {
-                gr->setBoxWidth (boxWidth);
+                gr->setBoxWidth (available * 3 / 4);
             }
         }
     }
@@ -763,25 +741,15 @@ private:
                     
                     ImageLabel *label = new ImageLabel (path, m_containerWidget);
 
-                    connect (label, &ImageLabel::doubleClicked, this, [this, i]() {
-                        saveCurrentContent();
-                        m_activeBlockIndex = i;
-                        refreshUI();
-                    });
+                    connect (label, &ImageLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
 
                     m_documentLayout->addWidget (label, 0, Qt::AlignCenter);
                 } else if (type == BlockType::Graph) {
                     if (const GraphBlock* gBlock = dynamic_cast<const GraphBlock*> (block)) {
-                        QPixmap graphPix = renderGraphPixmap (gBlock, 600, 450);
+                        auto snapshot = std::make_shared<GraphBlock> (*gBlock);
+                        GraphLabel *graphLabel = new GraphLabel (snapshot, m_containerWidget);
 
-                        GraphLabel *graphLabel = new GraphLabel (graphPix, m_containerWidget);
-                        graphLabel->setAlignment (Qt::AlignCenter);
-
-                        connect (graphLabel, &GraphLabel::doubleClicked, this, [this, i]() {
-                            saveCurrentContent();
-                            m_activeBlockIndex = i;
-                            refreshUI();
-                        });
+                        connect (graphLabel, &GraphLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
 
                         m_documentLayout->addWidget (graphLabel, 0, Qt::AlignCenter);
                     }
@@ -810,11 +778,7 @@ private:
 
                     label->setWordWrap (true);
                     
-                    connect (label, &ClickableLabel::doubleClicked, this, [this, i]() {
-                        saveCurrentContent();
-                        m_activeBlockIndex = i;
-                        refreshUI();
-                    });
+                    connect (label, &ClickableLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
 
                     m_documentLayout->addWidget (label);
                 }

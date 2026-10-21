@@ -30,7 +30,7 @@ private:
     GraphType m_graphType = GraphType::Line;
     GraphSource m_graphSource = GraphSource::Manual;
     DataSeries m_seriesX;
-    DataSeries m_seriesY;
+    QVector<DataSeries> m_seriesYList;
     AxisScale m_scaleX = AxisScale::Linear;
     AxisScale m_scaleY = AxisScale::Linear;
     QString m_description;
@@ -46,7 +46,8 @@ public:
     void setGraphType (GraphType type) { m_graphType = type; }
     void setGraphSource (GraphSource source) { m_graphSource = source; }
     void setSeriesX (const QString& name, const QVector<double>& vals) { m_seriesX = {name, vals}; }
-    void setSeriesY (const QString& name, const QVector<double>& vals) { m_seriesY = {name, vals}; }
+    void setSeriesY (const QString& name, const QVector<double>& vals) { m_seriesYList = { DataSeries{name, vals} }; }
+    void setSeriesYList (const QVector<DataSeries>& list) { m_seriesYList = list; }
     void setScales (AxisScale x, AxisScale y) { m_scaleX = x; m_scaleY = y; }
     void setDescription (const QString& desc) { m_description = desc; }
     void setCsvPath (const QString& path) { m_csvPath = path; }
@@ -54,7 +55,7 @@ public:
     GraphType getGraphType() const { return m_graphType; }
     GraphSource getGraphSource() const { return m_graphSource; }
     const DataSeries& getSeriesX() const { return m_seriesX; }
-    const DataSeries& getSeriesY() const { return m_seriesY; }
+    const QVector<DataSeries>& getSeriesYList() const { return m_seriesYList; }
     AxisScale getScaleX() const { return m_scaleX; }
     AxisScale getScaleY() const { return m_scaleY; }
     QString getDescription() const { return m_description; }

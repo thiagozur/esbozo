@@ -114,7 +114,7 @@ public:
             }
             return CommandResult::BlockDeleted;
         }
-        else if (triggeredCommand == "cparc;;") {
+        else if (triggeredCommand == "cpar;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 auto newBlock = std::make_unique<ParagraphBlock>();
                 newBlock->setContent (current->getContent());
@@ -122,7 +122,7 @@ public:
             }
             return CommandResult::TextUpdated;
         }
-        else if (triggeredCommand == "cttlc;;") {
+        else if (triggeredCommand == "cttl;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 auto newBlock = std::make_unique<TitleBlock>();
                 newBlock->setContent (current->getContent());
@@ -130,7 +130,7 @@ public:
             }
             return CommandResult::TextUpdated;
         }
-        else if (triggeredCommand == "csttlc;;") {
+        else if (triggeredCommand == "csttl;;") {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
                 auto newBlock = std::make_unique<SubtitleBlock>();
                 newBlock->setContent (current->getContent());
