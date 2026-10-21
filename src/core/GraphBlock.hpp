@@ -1,36 +1,65 @@
 ﻿#pragma once
 
 #include "Block.hpp"
+#include <QString>
 #include <QVector>
-#include <QPointF>
+#include <QPair>
+
+enum class GraphType {
+    Line,
+    Scatter
+};
+
+enum class GraphSource {
+    Csv,
+    Manual
+};
+
+enum class AxisScale {
+    Linear,
+    Log
+};
+
+struct DataSeries {
+    QString name;
+    QVector<double> values;
+};
 
 class GraphBlock : public Block {
 private:
-    QString m_title;
-    QVector<QPointF> m_dataPoints;
-    QString m_csvFilePath;
+    GraphType m_graphType = GraphType::Line;
+    GraphSource m_graphSource = GraphSource::Manual;
+    DataSeries m_seriesX;
+    DataSeries m_seriesY;
+    AxisScale m_scaleX = AxisScale::Linear;
+    AxisScale m_scaleY = AxisScale::Linear;
+    QString m_description;
+    QString m_csvPath;
 
 public:
-    GraphBlock (const QString& title) : m_title (title) {}
+    explicit GraphBlock (const QString& title = "") : m_description(title) {}
 
-    BlockType getType() const override {
-        return BlockType::Graph;
-    }
+    BlockType getType() const override { return BlockType::Graph; }
 
-    void setContent (const QString& csvPathOrData) override {
-        m_csvFilePath = csvPathOrData;
-        // parsear data o csv
-    }
+    QString toMarkdown() const override { return ""; } // se implementa despues
 
-    QString getContent() const override {
-        return m_csvFilePath;
-    }
+    void setGraphType (GraphType type) { m_graphType = type; }
+    void setGraphSource (GraphSource source) { m_graphSource = source; }
+    void setSeriesX (const QString& name, const QVector<double>& vals) { m_seriesX = {name, vals}; }
+    void setSeriesY (const QString& name, const QVector<double>& vals) { m_seriesY = {name, vals}; }
+    void setScales (AxisScale x, AxisScale y) { m_scaleX = x; m_scaleY = y; }
+    void setDescription (const QString& desc) { m_description = desc; }
+    void setCsvPath (const QString& path) { m_csvPath = path; }
 
-    void addDataPoint(qreal x, qreal y) {
-        m_dataPoints.append(QPointF(x, y));
-    }
+    GraphType getGraphType() const { return m_graphType; }
+    GraphSource getGraphSource() const { return m_graphSource; }
+    const DataSeries& getSeriesX() const { return m_seriesX; }
+    const DataSeries& getSeriesY() const { return m_seriesY; }
+    AxisScale getScaleX() const { return m_scaleX; }
+    AxisScale getScaleY() const { return m_scaleY; }
+    QString getDescription() const { return m_description; }
+    QString getCsvPath() const { return m_csvPath; }
 
-    QString toMarkdown() const override {
-        return QString("[Gráfico: %1 (Datos: %2)]\n\n").arg(m_title, m_csvFilePath);
-    }
+    QString getContent() const override { return m_description; }
+    void setContent (const QString& content) override { m_description = content; }
 };

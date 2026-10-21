@@ -14,6 +14,12 @@
 #include <QScrollBar>
 #include <QAbstractTextDocumentLayout>
 #include <QFileDialog>
+#include <QRegularExpression>
+#include <QFile>
+#include <QPainter>
+#include <QPen>
+#include <QColor>
+#include <QFont>
 
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
@@ -71,6 +77,19 @@ public:
     }
 };
 
+enum class GraphWizardState {
+    Idle,
+    WaitingForType,
+    WaitingForSource,
+    WaitingForXName,
+    WaitingForXValues,
+    WaitingForYName,
+    WaitingForYValues,
+    WaitingForXScale,
+    WaitingForYScale,
+    WaitingForDescription
+};
+
 class EsbozoWindow : public QMainWindow {
     Q_OBJECT
 
@@ -78,6 +97,14 @@ private:
     Document m_document;
     CommandProcessor m_processor;
     size_t m_activeBlockIndex;
+
+    GraphWizardState m_graphState = GraphWizardState::Idle;
+    GraphType m_tempGraphType = GraphType::Line;
+    GraphSource m_tempGraphSource = GraphSource::Manual;
+    QString m_tempXName, m_tempYName;
+    QVector<double> m_tempXVals, m_tempYVals;
+    AxisScale m_tempXScale = AxisScale::Linear;
+    AxisScale m_tempYScale = AxisScale::Linear;
 
     QWidget *m_containerWidget;
     QVBoxLayout *m_documentLayout;
@@ -141,6 +168,11 @@ protected:
             }
             
             if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+                if (m_graphState != GraphWizardState::Idle) {
+                    handleInputSubmitted();
+                    return true;
+                }
+                
                 QString text = m_activeTextEdit->toPlainText();
                 QString trimmedText = text.trimmed();
                 
@@ -191,6 +223,108 @@ private slots:
         if (!m_activeTextEdit) return;
 
         QString text = m_activeTextEdit->toPlainText();
+
+        if (m_graphState != GraphWizardState::Idle) {
+            QString trimmedText = text.trimmed();
+
+            if (trimmedText == "can;;") {
+                m_graphState = GraphWizardState::Idle;
+                refreshUI();
+                return;
+            }
+
+            switch (m_graphState) {
+                case GraphWizardState::WaitingForType:
+                    if (trimmedText == "lin")
+                        m_tempGraphType = GraphType::Line;
+                    else if (trimmedText == "sct") 
+                        m_tempGraphType = GraphType::Scatter;
+                    else
+                        return;
+                    
+                    m_graphState = GraphWizardState::WaitingForSource;
+                    updateGraphPrompt("csv (archivo) o man (entrada manual)");
+                    break;
+                
+                case GraphWizardState::WaitingForSource:
+                    if (trimmedText == "csv") {
+                        m_tempGraphSource = GraphSource::Csv;
+                        openCsvFileDialog();
+                    } else if (trimmedText == "man") {
+                        m_tempGraphSource = GraphSource::Manual;
+                        m_graphState = GraphWizardState::WaitingForXName;
+                        updateGraphPrompt ("Nombre de la serie X");
+                    }
+                    break;
+
+                case GraphWizardState::WaitingForXName:
+                    m_tempXName = trimmedText;
+                    m_graphState = GraphWizardState::WaitingForXValues;
+                    updateGraphPrompt ("Valores de X separados por comas");
+                    break;
+
+                case GraphWizardState::WaitingForXValues:
+                    m_tempXVals = parseCommaValues (trimmedText);
+                    m_graphState = GraphWizardState::WaitingForYName;
+                    updateGraphPrompt ("Nombre de la serie Y");
+                    break;
+
+                case GraphWizardState::WaitingForYName:
+                    m_tempYName = trimmedText;
+                    m_graphState = GraphWizardState::WaitingForYValues;
+                    updateGraphPrompt ("Valores de Y separados por comas");
+                    break;
+
+                case GraphWizardState::WaitingForYValues:
+                    m_tempYVals = parseCommaValues (trimmedText);
+                    m_graphState = GraphWizardState::WaitingForXScale;
+                    updateGraphPrompt ("lin (eje x lineal) o log (eje x logarítmico)");
+                    break;
+
+                case GraphWizardState::WaitingForXScale:
+                    if (trimmedText == "lin")
+                        m_tempXScale = AxisScale::Linear;
+                    else if (trimmedText == "log")
+                        m_tempXScale = AxisScale::Log;
+                    else
+                        return;
+
+                    m_graphState = GraphWizardState::WaitingForYScale;
+                    updateGraphPrompt ("lin (eje y lineal) o log (eje y logarítmico)");
+                    break;
+                
+                case GraphWizardState::WaitingForYScale:
+                    if (trimmedText == "lin")
+                        m_tempYScale = AxisScale::Linear;
+                    else if (trimmedText == "log")
+                        m_tempYScale = AxisScale::Log;
+                    else
+                        return;
+
+                    m_graphState = GraphWizardState::WaitingForDescription;
+                    updateGraphPrompt ("descripción de la figura");
+                    break;
+
+                case GraphWizardState::WaitingForDescription:
+                    {
+                        if (auto* gBlock = dynamic_cast<GraphBlock*> (m_document.getBlock (m_activeBlockIndex))) {
+                            gBlock->setGraphType (m_tempGraphType);
+                            gBlock->setGraphSource (m_tempGraphSource);
+                            gBlock->setSeriesX (m_tempXName, m_tempXVals);
+                            gBlock->setSeriesY (m_tempYName, m_tempYVals);
+                            gBlock->setScales (m_tempXScale, m_tempYScale);
+                            gBlock->setDescription (trimmedText);
+                        }
+                        m_graphState = GraphWizardState::Idle;
+                        refreshUI();
+                    }
+                    break;
+                
+                default:
+                    break;
+            }
+            return;
+        }
         
         m_processor.setActiveBlockIndex (m_activeBlockIndex);
         CommandResult result = m_processor.processInput (text);
@@ -235,10 +369,166 @@ private slots:
                     refreshUI();
                 }
             }
+            else if (currentBlock->getType() == BlockType::Graph && m_graphState == GraphWizardState::Idle) {
+                m_graphState = GraphWizardState::WaitingForType;
+                updateGraphPrompt ("lin (línea) o sct (dispersión)");
+            }
         }
     }
 
 private:
+    QPixmap renderGraphPixmap (const GraphBlock* gBlock, int targetWidth, int targetHeight) {
+        QPixmap pixmap (targetWidth, targetHeight);
+        pixmap.fill (Qt::white);
+
+        QPainter painter (&pixmap);
+        painter.setRenderHint (QPainter::Antialiasing, true);
+
+        painter.setPen (QPen (QColor ("#E0E0E0"), 1));
+        painter.drawRect (50, 30, targetWidth - 70, targetHeight - 70);
+
+        const auto& xVals = gBlock->getSeriesX().values;
+        const auto& yVals = gBlock->getSeriesY().values;
+        if (xVals.isEmpty() || yVals.isEmpty() || xVals.size() != yVals.size()) {
+            painter.setPen (Qt::black);
+            painter.drawText (pixmap.rect(), Qt::AlignCenter, "Sin datos para graficar");
+            return pixmap;
+        }
+
+        double minX = xVals[0], maxX = xVals[0];
+        double minY = yVals[0], maxY = yVals[0];
+        for (int i = 0; i < xVals.size(); ++i) {
+            minX = qMin (minX, xVals[i]); maxX = qMax (maxX, xVals[i]);
+            minY = qMin (minY, yVals[i]); maxY = qMax (maxY, yVals[i]);
+        }
+        if (qFuzzyCompare (minX, maxX))
+            maxX += 1.0;
+        if (qFuzzyCompare (minY, maxY))
+            maxY += 1.0;
+
+        int plotX = 50;
+        int plotY = 30;
+        int plotW = targetWidth - 70;
+        int plotH = targetHeight - 70;
+
+        auto mapX = [&] (double val) {
+            return plotX + static_cast<int> ((val - minX) / (maxX - minX) * plotW);
+        };
+        auto mapY = [&] (double val) {
+            return plotY + plotH - static_cast<int> ((val - minY) / (maxY - minY) * plotH);
+        };
+
+        if (gBlock->getGraphType() == GraphType::Line) {
+            painter.setPen (QPen (QColor ("#4682B4"), 2));
+            for (int i = 0; i < xVals.size() - 1; ++i) {
+                painter.drawLine (mapX (xVals[i]), mapY (yVals[i]), mapX (xVals[i+1]), mapY (yVals[i+1]));
+            }
+        } else {
+            painter.setBrush (QColor("#E67E22"));
+            painter.setPen (Qt::NoPen);
+            for (int i = 0; i < xVals.size(); ++i) {
+                painter.drawEllipse (QPoint (mapX (xVals[i]), mapY (yVals[i])), 4, 4);
+            }
+        }
+
+        painter.setPen (Qt::black);
+        painter.setFont (QFont ("Segoe UI", 9));
+        painter.drawText (plotX + plotW / 2 - 30, targetHeight - 20, gBlock->getSeriesX().name);
+        
+        painter.setFont (QFont ("Segoe UI", 10, QFont::Bold));
+        painter.drawText (plotX, targetHeight - 5, gBlock->getDescription());
+
+        return pixmap;
+    }
+
+    void updateGraphPrompt (const QString& promptText) {
+        if (m_activeTextEdit) {
+            m_activeTextEdit->clear();
+            m_activeTextEdit->setPlaceholderText (promptText);
+            m_activeTextEdit->setStyleSheet ("QTextEdit { background-color: #FEF9E7; border: 2px solid #E67E22; padding: 6px; border-radius: 4px; }");
+        }
+    }
+
+    QVector<double> parseCommaValues (const QString& str) {
+        QVector<double> result;
+        QStringList parts = str.split (',');
+        for (const QString& p : parts) {
+            bool ok = false;
+            double val = p.trimmed().toDouble (&ok);
+            if (ok) result.append (val);
+        }
+        return result;
+    }
+
+    bool parseCsvFile (const QString& path) {
+        QFile file (path);
+        if (!file.open (QIODevice::ReadOnly | QIODevice::Text)) {
+            return false;
+        }
+
+        QTextStream in (&file);
+        if (in.atEnd()) return false;
+
+        QString headerLine = in.readLine();
+        QStringList headers = headerLine.split (QRegularExpression ("[,;\\t]"), Qt::SkipEmptyParts);
+        if (headers.size() < 2) return false;
+
+        m_tempXName = headers[0].trimmed();
+        m_tempYName = headers[1].trimmed();
+
+        m_tempXVals.clear();
+        m_tempYVals.clear();
+
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+            if (line.isEmpty()) continue;
+
+            QStringList parts = line.split (QRegularExpression ("[,;\\t]"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                bool okX = false, okY = false;
+                double xVal = parts[0].trimmed().toDouble (&okX);
+                double yVal = parts[1].trimmed().toDouble (&okY);
+                if (okX && okY) {
+                    m_tempXVals.append (xVal);
+                    m_tempYVals.append (yVal);
+                }
+            }
+        }
+
+        file.close();
+        return !m_tempXVals.isEmpty() && !m_tempYVals.isEmpty();
+    }
+
+    void openCsvFileDialog() {
+        QFileDialog dialog (this, "Seleccionar Archivo CSV");
+        dialog.setOption (QFileDialog::DontUseNativeDialog, true);
+        dialog.setFileMode (QFileDialog::ExistingFile);
+        dialog.setNameFilter  ("Archivos CSV (*.csv)");
+        dialog.setViewMode (QFileDialog::Detail);
+        dialog.setStyleSheet(
+            "QDialog { background-color: #Fdfdfd; }"
+            "QLabel { color: #333333; font-family: 'Segoe UI'; }"
+            "QPushButton { background-color: #4682B4; color: white; border-radius: 4px; padding: 6px 12px; font-family: 'Segoe UI'; }"
+            "QPushButton:hover { background-color: #3b6e9b; }"
+        );
+
+        if (dialog.exec() == QDialog::Accepted) {
+            QStringList files = dialog.selectedFiles();
+            if (!files.isEmpty()) {
+                QString path = files.first();
+                if (parseCsvFile (path)) {
+                    m_graphState = GraphWizardState::WaitingForXScale;
+                    updateGraphPrompt ("Escala eje X: escribe 'lin' o 'log'...");
+                } else {
+                    updateGraphPrompt ("Error al leer el CSV. Escribe 'can;;' para cancelar o reintenta.");
+                }
+            }
+        } else {
+            m_graphState = GraphWizardState::Idle;
+            refreshUI();
+        }
+    }
+
     void saveCurrentContent() {
         if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
@@ -386,6 +676,23 @@ private:
                     });
 
                     m_documentLayout->addWidget (label, 0, Qt::AlignCenter);
+                } else if (type == BlockType::Graph) {
+                    if (const GraphBlock* gBlock = dynamic_cast<const GraphBlock*> (block)) {
+                        QPixmap graphPix = renderGraphPixmap (gBlock, 600, 350);
+
+                        ClickableLabel *graphLabel = new ClickableLabel("", m_containerWidget);
+                        graphLabel->setPixmap (graphPix);
+                        graphLabel->setAlignment (Qt::AlignCenter);
+                        graphLabel->setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
+
+                        connect (graphLabel, &ClickableLabel::doubleClicked, this, [this, i]() {
+                            saveCurrentContent();
+                            m_activeBlockIndex = i;
+                            refreshUI();
+                        });
+
+                        m_documentLayout->addWidget (graphLabel, 0, Qt::AlignCenter);
+                    }
                 } else {
                     QString content = block->getContent();
                     if (content.isEmpty()) {
