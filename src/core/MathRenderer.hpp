@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QTextStream>
 #include <QStandardPaths>
+#include <QCryptographicHash>
+#include <QDir>
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
@@ -44,6 +46,15 @@ inline QHash<QString, QPixmap>& cache() {
 inline QMutex& cacheMutex() {
     static QMutex m;
     return m;
+}
+
+inline QString cacheDirectory() {
+    static QString dir = []{
+        QString path = QStandardPaths::writableLocation (QStandardPaths::CacheLocation) + "/equations";
+        QDir().mkpath (path);
+        return path;
+    }();
+    return dir;
 }
 
 inline QPixmap renderFallback (const QString& text, const QString& reason) {
@@ -90,6 +101,9 @@ public:
     static void clearCache() {
         QMutexLocker lk (&math_renderer_detail::cacheMutex());
         math_renderer_detail::cache().clear();
+        
+        QDir dir(math_renderer_detail::cacheDirectory());
+        dir.removeRecursively();
     }
 };
 
@@ -107,6 +121,19 @@ inline QPixmap MathRenderer::render (const QString& latex, qreal dpr) {
         auto it = cache().find (key);
         if (it != cache().end())
             return it.value();
+    }
+
+    const QByteArray hash = QCryptographicHash::hash (key.toUtf8(), QCryptographicHash::Sha256).toHex();
+    const QString diskPath = cacheDirectory() + "/" + QString::fromLatin1 (hash) + ".png";
+
+    if (QFile::exists (diskPath)) {
+        QPixmap pm;
+        if (pm.load (diskPath, "PNG")) {
+            pm.setDevicePixelRatio (dpr);
+            QMutexLocker lk (&cacheMutex());
+            cache().insert (key, pm);
+            return pm;
+        }
     }
 
     QPixmap result;
@@ -152,6 +179,7 @@ inline QPixmap MathRenderer::render (const QString& latex, qreal dpr) {
                             if (pm.load (pngPath, "PNG")) {
                                 pm.setDevicePixelRatio (dpr);
                                 result = pm;
+                                pm.save (diskPath, "PNG");
                             }
                         }
                     }
