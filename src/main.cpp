@@ -30,6 +30,7 @@
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
 #include "core/GraphRenderer.hpp"
+#include "core/InlineMarkup.hpp"
 
 class ClickableLabel : public QLabel {
     Q_OBJECT
@@ -211,6 +212,14 @@ protected:
                 }
                 else if (keyEvent->key() == Qt::Key_O) {
                     openProject();
+                    return true;
+                }
+                else if (keyEvent->key() == Qt::Key_B) {
+                    toggleBold();
+                    return true;
+                }
+                else if (keyEvent->key() == Qt::Key_K) {
+                    toggleItalic();
                     return true;
                 }
             }
@@ -606,7 +615,7 @@ private slots:
         }
         
         m_processor.setActiveBlockIndex (m_activeBlockIndex);
-        CommandResult result = m_processor.processInput (text);
+        CommandResult result = m_processor.processInput (inputForProcessor());
 
         if (result == CommandResult::BlockCreated || result == CommandResult::SectionFinished || result == CommandResult::BlockDeleted) {
             m_activeBlockIndex = m_processor.getActiveBlockIndex();
@@ -799,12 +808,72 @@ private:
         }
     }
 
+    bool canFormat() const {
+        if (!m_activeTextEdit || navigationLocked())
+            return false;
+        const Block* b = m_document.getBlock (m_activeBlockIndex);
+        return b && InlineMarkup::isRichType (b->getType());
+    }
+
+    void toggleBold() {
+        if (!canFormat()) return;
+        QTextCharFormat fmt;
+        bool on = m_activeTextEdit->currentCharFormat().fontWeight() >= QFont::Bold;
+        fmt.setFontWeight (on ? QFont::Normal : QFont::Bold);
+        m_activeTextEdit->mergeCurrentCharFormat (fmt);
+    }
+
+    void toggleItalic() {
+        if (!canFormat()) return;
+        QTextCharFormat fmt;
+        fmt.setFontItalic (!m_activeTextEdit->currentCharFormat().fontItalic());
+        m_activeTextEdit->mergeCurrentCharFormat (fmt);
+    }
+
+    QString inputForProcessor() {
+        QString plain = m_activeTextEdit->toPlainText();
+        const Block* b = m_document.getBlock (m_activeBlockIndex);
+        if (!b || !InlineMarkup::isRichType (b->getType()))
+            return plain;
+
+        QString cmd;
+        const QString trimmed = plain.trimmed();
+        for (const QString& c : CommandProcessor::getSupportedCommands()) {
+            if (trimmed.endsWith (c)) {
+                cmd = c;
+                break;
+            }
+        }
+
+        if (!cmd.isEmpty()) {
+            QTextCursor cur (m_activeTextEdit->document());
+            cur.setPosition (plain.lastIndexOf (cmd));
+            cur.movePosition (QTextCursor::End, QTextCursor::KeepAnchor);
+            cur.removeSelectedText();
+        }
+        return InlineMarkup::serialize (m_activeTextEdit->document()) + cmd;
+    }
+
+    void updateStatus() {
+        QString s = QString ("Bloque activo: %1 / %2").arg (m_activeBlockIndex + 1).arg (m_document.getBlockCount());
+        if (canFormat()) {
+            const QTextCharFormat f = m_activeTextEdit->currentCharFormat();
+            if (f.fontWeight() >= QFont::Bold)
+                s += "   [Negrita]";
+            if (f.fontItalic())
+                s += "   [Cursiva]";
+        }
+        m_statusLabel->setText (s);
+    }
+
     void saveCurrentContent() {
         if (navigationLocked())
             return;
         if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-                current->setContent (m_activeTextEdit->toPlainText());
+                current->setContent (InlineMarkup::isRichType (current->getType())
+                    ? InlineMarkup::serialize (m_activeTextEdit->document())
+                    : m_activeTextEdit->toPlainText());
             }
         }
     }
@@ -891,21 +960,27 @@ private:
 
             if (i == m_activeBlockIndex) {
                 QTextEdit *editBox = new QTextEdit (m_containerWidget);
-                editBox->setPlainText (block->getContent());
-                editBox->moveCursor (QTextCursor::End);
                 editBox->setAcceptRichText (false);
-                
+
+                if (InlineMarkup::isRichType (type))
+                    InlineMarkup::load (editBox->document(), block->getContent());
+                else
+                    editBox->setPlainText (block->getContent());
+                editBox->moveCursor (QTextCursor::End);
+
                 if (type == BlockType::Title) {
-                    editBox->setFont (QFont ("Segoe UI", 16, QFont::Bold));
+                    editBox->setFont (QFont ("Segoe UI", 16));
                 } else if (type == BlockType::Subtitle) {
-                    editBox->setFont (QFont ("Segoe UI", 14, QFont::DemiBold));
+                    editBox->setFont (QFont ("Segoe UI", 14));
                 } else if (type == BlockType::Image) {
-                    editBox->setFont (QFont ("Segoe UI", 11, QFont::StyleItalic));
+                    QFont f ("Segoe UI", 11);
+                    f.setItalic (true);
+                    editBox->setFont (f);
                     if (block->getContent().isEmpty()) {
-                        editBox->setPlaceholderText ("Ruta de la imagen...");
+                        editBox->setPlaceholderText ("Ruta de la imagen");
                     }
                 } else {
-                    editBox->setFont (QFont ("Segoe UI", 13, QFont::Normal));
+                    editBox->setFont (QFont ("Segoe UI", 13));
                 }
 
                 editBox->setStyleSheet ("QTextEdit { background-color: #F0F8FF; border: 2px solid #4682B4; padding: 6px; border-radius: 4px; }");
@@ -923,10 +998,17 @@ private:
 
                 connect (editBox->document()->documentLayout(),
                         &QAbstractTextDocumentLayout::documentSizeChanged,
-                        this, [updateHeight] (const QSizeF &) { updateHeight(); });
+                        this, [updateHeight] (const QSizeF &) {
+                            updateHeight();
+                        }
+                    );
 
                 connect (editBox, &QTextEdit::textChanged, this, [this]() {
                     saveCurrentContent();
+                });
+
+                connect (editBox, &QTextEdit::currentCharFormatChanged, this, [this] (const QTextCharFormat &) {
+                    updateStatus();
                 });
 
                 editBox->installEventFilter (this);
@@ -961,21 +1043,16 @@ private:
                     }
                 } else {
                     QString content = block->getContent();
-                    if (content.isEmpty()) {
-                        content = "(vacío)";
-                    } else {
-                        content = content.toHtmlEscaped();
-                        content.replace ("\n\n", "<br>&nbsp;<br>");
-                        content.replace ("\n", "<br>");
-                    }
+                    QString html = content.isEmpty() ? QString ("(vacío)") : InlineMarkup::toHtml (content);
 
-                    ClickableLabel *label = new ClickableLabel (content, m_containerWidget);
-                    
+                    ClickableLabel *label = new ClickableLabel (html, m_containerWidget);
+                    label->setTextFormat (Qt::RichText);
+
                     if (type == BlockType::Title) {
-                        label->setFont (QFont ("Segoe UI", 15, QFont::Bold));
+                        label->setFont (QFont ("Segoe UI", 15));
                         label->setStyleSheet ("QLabel { color: #222222; padding: 6px; }");
                     } else if (type == BlockType::Subtitle) {
-                        label->setFont (QFont ("Segoe UI", 13, QFont::DemiBold));
+                        label->setFont (QFont ("Segoe UI", 13));
                         label->setStyleSheet ("QLabel { color: #444444; padding: 6px; }");
                     } else {
                         label->setFont (QFont ("Segoe UI", 11, QFont::Normal));
@@ -993,7 +1070,7 @@ private:
 
         updateImageWidths();
 
-        m_statusLabel->setText (QString ("Bloque activo: %1 / %2").arg (m_activeBlockIndex + 1).arg (count));
+        updateStatus();
         
         QTimer::singleShot (0, this, [this]() {
             centerActiveBlock();

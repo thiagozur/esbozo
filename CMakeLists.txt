@@ -25,6 +25,7 @@ set(HEADERS
     src/core/GraphBlock.hpp
     src/core/GraphRenderer.hpp
     src/core/Document.hpp
+    src/core/InlineMarkup.hpp
     src/core/CommandProcessor.hpp
 )
 
