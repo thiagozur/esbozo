@@ -20,8 +20,4 @@ public:
     QString getContent() const override {
         return m_imagePath;
     }
-
-    QString toMarkdown() const override {
-        return "![](" + m_imagePath + ")\n\n";
-    }
 };

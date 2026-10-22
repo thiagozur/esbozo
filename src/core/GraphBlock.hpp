@@ -41,8 +41,6 @@ public:
 
     BlockType getType() const override { return BlockType::Graph; }
 
-    QString toMarkdown() const override { return ""; } // se implementa despues
-
     void setGraphType (GraphType type) { m_graphType = type; }
     void setGraphSource (GraphSource source) { m_graphSource = source; }
     void setSeriesX (const QString& name, const QVector<double>& vals) { m_seriesX = {name, vals}; }

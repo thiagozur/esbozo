@@ -43,14 +43,6 @@ public:
         return nullptr;
     }
 
-    QString toMarkdown() const {
-        QString fullMarkdown;
-        for (const auto& block : m_blocks) {
-            fullMarkdown += block->toMarkdown();
-        }
-        return fullMarkdown;
-    }
-
     void clear() {
         m_blocks.clear();
     }

@@ -20,8 +20,4 @@ public:
     QString getContent() const override {
         return m_text;
     }
-
-    QString toMarkdown() const override {
-        return "# " + m_text + "\n\n";
-    }
 };

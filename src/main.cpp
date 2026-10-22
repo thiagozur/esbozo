@@ -16,6 +16,8 @@
 #include <QFileDialog>
 #include <QRegularExpression>
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QPainter>
 #include <QPen>
 #include <QColor>
@@ -24,6 +26,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QTextCharFormat>
 #include <memory>
 #include <limits>
 
@@ -115,17 +118,18 @@ public:
     }
 };
 
-enum class GraphWizardState {
+enum class WizardState {
     Idle,
-    WaitingForType,
-    WaitingForSource,
-    WaitingForXName,
-    WaitingForXValues,
-    WaitingForYName,
-    WaitingForYValues,
-    WaitingForXScale,
-    WaitingForYScale,
-    WaitingForDescription
+    WaitingForGraphType,
+    WaitingForGraphSource,
+    WaitingForGraphXName,
+    WaitingForGraphXValues,
+    WaitingForGraphYName,
+    WaitingForGraphYValues,
+    WaitingForGraphXScale,
+    WaitingForGraphYScale,
+    WaitingForGraphDescription,
+    WaitingForExportFormat
 };
 
 class EsbozoWindow : public QMainWindow {
@@ -137,7 +141,7 @@ private:
     size_t m_activeBlockIndex;
     QString m_currentFilePath;
 
-    GraphWizardState m_graphState = GraphWizardState::Idle;
+    WizardState m_wizardState = WizardState::Idle;
     GraphType m_tempGraphType = GraphType::Line;
     GraphSource m_tempGraphSource = GraphSource::Manual;
     QString m_tempXName, m_tempYName;
@@ -158,7 +162,7 @@ public:
         resize (800, 600);
 
         if (m_document.getBlockCount() == 0) {
-            m_document.addBlock(std::make_unique<TitleBlock>());
+            m_document.addBlock (std::make_unique<TitleBlock>());
         }
 
         QWidget *centralWidget = new QWidget (this);
@@ -214,6 +218,14 @@ protected:
                     openProject();
                     return true;
                 }
+                else if (keyEvent->key() == Qt::Key_N) {
+                    newProject();
+                    return true;
+                }
+                else if (keyEvent->key() == Qt::Key_E) {
+                    startExportWizard();
+                    return true;
+                }
                 else if (keyEvent->key() == Qt::Key_B) {
                     toggleBold();
                     return true;
@@ -225,7 +237,7 @@ protected:
             }
             
             if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
-                if (m_graphState != GraphWizardState::Idle) {
+                if (m_wizardState != WizardState::Idle) {
                     handleInputSubmitted();
                     return true;
                 }
@@ -248,7 +260,7 @@ protected:
                 }
             }
         }
-        return QMainWindow::eventFilter(obj, event);
+        return QMainWindow::eventFilter (obj, event);
     }
 
     void keyPressEvent (QKeyEvent *event) override {
@@ -276,6 +288,16 @@ protected:
                 event->accept();
                 return;
             }
+            else if (event->key() == Qt::Key_N) {
+                newProject();
+                event->accept();
+                return;
+            }
+            else if (event->key() == Qt::Key_E) {
+                startExportWizard();
+                event->accept();
+                return;
+            }
         }
         QMainWindow::keyPressEvent (event);
     }
@@ -287,12 +309,24 @@ protected:
     }
 
 private slots:
+    void newProject() {
+        saveCurrentContent();
+        m_document = Document();
+        m_document.addBlock (std::make_unique<TitleBlock>());
+        m_activeBlockIndex = 0;
+        m_currentFilePath.clear();
+        m_wizardState = WizardState::Idle;
+        updateWindowTitle();
+        m_statusLabel->setText ("Nuevo proyecto creado");
+        refreshUI();
+    }
+
     void saveProject() {
         if (m_currentFilePath.isEmpty()) {
             QString filePath = QFileDialog::getSaveFileName (this, "Guardar Proyecto", "", "Archivos Esbozo (*.sbz)");
             if (filePath.isEmpty())
                 return;
-            if (!filePath.endsWith(".sbz", Qt::CaseInsensitive)) {
+            if (!filePath.endsWith (".sbz", Qt::CaseInsensitive)) {
                 filePath += ".sbz";
             }
             m_currentFilePath = filePath;
@@ -377,7 +411,7 @@ private slots:
 
         QFile file (filePath);
         if (!file.open (QIODevice::ReadOnly)) {
-            m_statusLabel->setText("Error al abrir el archivo");
+            m_statusLabel->setText ("Error al abrir el archivo");
             return;
         }
 
@@ -469,34 +503,48 @@ private slots:
         setWindowTitle (title);
     }
 
+    void startExportWizard() {
+        if (navigationLocked()) {
+            showLockedMessage();
+            return;
+        }
+        saveCurrentContent();
+        m_wizardState = WizardState::WaitingForExportFormat;
+        updateWizardPrompt ("md (Markdown) o pdf (PDF)");
+    }
+
     void handleInputSubmitted() {
         if (!m_activeTextEdit)
             return;
 
         QString text = m_activeTextEdit->toPlainText();
 
-        if (m_graphState != GraphWizardState::Idle) {
+        if (m_wizardState != WizardState::Idle) {
             QString trimmedText = text.trimmed();
 
             if (trimmedText == "can;;") {
-                m_graphState = GraphWizardState::Idle;
-                if (m_document.getBlockCount() > 1) {
-                    size_t indexToDelete = m_activeBlockIndex;
-                    if (m_activeBlockIndex > 0) {
-                        m_activeBlockIndex--;
-                    }
-                    m_document.removeBlock (indexToDelete);
-                } else {
-                    if (auto* currentBlock = m_document.getBlock (m_activeBlockIndex)) {
-                        currentBlock->setContent("");
-                    }
-                }
+                m_wizardState = WizardState::Idle;
                 refreshUI();
                 return;
             }
 
-            switch (m_graphState) {
-                case GraphWizardState::WaitingForType:
+            if (m_wizardState == WizardState::WaitingForExportFormat) {
+                if (trimmedText == "md") {
+                    m_wizardState = WizardState::Idle;
+                    refreshUI();
+                    exportToMarkdown();
+                } else if (trimmedText == "pdf") {
+                    m_wizardState = WizardState::Idle;
+                    m_statusLabel->setText ("Exportación a PDF cancelada (no disponible por el momento)");
+                    refreshUI();
+                } else {
+                    m_activeTextEdit->clear();
+                }
+                return;
+            }
+
+            switch (m_wizardState) {
+                case WizardState::WaitingForGraphType:
                     if (trimmedText == "lin")
                         m_tempGraphType = GraphType::Line;
                     else if (trimmedText == "sct") 
@@ -506,66 +554,66 @@ private slots:
                         return;
                     }
                     
-                    m_graphState = GraphWizardState::WaitingForSource;
-                    updateGraphPrompt("csv (archivo) o man (entrada manual)");
+                    m_wizardState = WizardState::WaitingForGraphSource;
+                    updateWizardPrompt ("csv (archivo) o man (entrada manual)");
                     break;
                 
-                case GraphWizardState::WaitingForSource:
+                case WizardState::WaitingForGraphSource:
                     if (trimmedText == "csv") {
                         m_tempGraphSource = GraphSource::Csv;
                         openCsvFileDialog();
                     } else if (trimmedText == "man") {
                         m_tempGraphSource = GraphSource::Manual;
-                        m_graphState = GraphWizardState::WaitingForXName;
-                        updateGraphPrompt ("Nombre de la serie X");
+                        m_wizardState = WizardState::WaitingForGraphXName;
+                        updateWizardPrompt ("Nombre de la serie X");
                     } else {
                         m_activeTextEdit->clear();
                         return;
                     }
                     break;
 
-                case GraphWizardState::WaitingForXName:
+                case WizardState::WaitingForGraphXName:
                     if (trimmedText.isEmpty()) {
                         m_activeTextEdit->clear();
                         return;
                     }
                     m_tempXName = trimmedText;
-                    m_graphState = GraphWizardState::WaitingForXValues;
-                    updateGraphPrompt ("Valores de X separados por comas");
+                    m_wizardState = WizardState::WaitingForGraphXValues;
+                    updateWizardPrompt ("Valores de X separados por comas");
                     break;
 
-                case GraphWizardState::WaitingForXValues:
+                case WizardState::WaitingForGraphXValues:
                     m_tempXVals = parseCommaValues (trimmedText);
                     if (m_tempXVals.isEmpty()) {
                         m_activeTextEdit->clear();
                         return;
                     }
-                    m_graphState = GraphWizardState::WaitingForYName;
-                    updateGraphPrompt ("Nombre de la serie Y");
+                    m_wizardState = WizardState::WaitingForGraphYName;
+                    updateWizardPrompt ("Nombre de la serie Y");
                     break;
 
-                case GraphWizardState::WaitingForYName:
+                case WizardState::WaitingForGraphYName:
                     if (trimmedText.isEmpty()) {
                         m_activeTextEdit->clear();
                         return;
                     }
                     m_tempYName = trimmedText;
-                    m_graphState = GraphWizardState::WaitingForYValues;
-                    updateGraphPrompt ("Valores de Y separados por comas");
+                    m_wizardState = WizardState::WaitingForGraphYValues;
+                    updateWizardPrompt ("Valores de Y separados por comas");
                     break;
 
-                case GraphWizardState::WaitingForYValues:
+                case WizardState::WaitingForGraphYValues:
                     m_tempYVals = parseCommaValues (trimmedText);
                     if (m_tempYVals.isEmpty() || m_tempYVals.size() != m_tempXVals.size()) {
                         m_activeTextEdit->clear();
                         return;
                     }
                     m_tempYSeries = { DataSeries{ m_tempYName, m_tempYVals } };
-                    m_graphState = GraphWizardState::WaitingForXScale;
-                    updateGraphPrompt ("lin (eje x lineal) o log (eje x logarítmico)");
+                    m_wizardState = WizardState::WaitingForGraphXScale;
+                    updateWizardPrompt ("lin (eje x lineal) o log (eje x logarítmico)");
                     break;
 
-                case GraphWizardState::WaitingForXScale:
+                case WizardState::WaitingForGraphXScale:
                     if (trimmedText == "lin")
                         m_tempXScale = AxisScale::Linear;
                     else if (trimmedText == "log")
@@ -575,11 +623,11 @@ private slots:
                         return;
                     }
 
-                    m_graphState = GraphWizardState::WaitingForYScale;
-                    updateGraphPrompt ("lin (eje y lineal) o log (eje y logarítmico)");
+                    m_wizardState = WizardState::WaitingForGraphYScale;
+                    updateWizardPrompt ("lin (eje y lineal) o log (eje y logarítmico)");
                     break;
                 
-                case GraphWizardState::WaitingForYScale:
+                case WizardState::WaitingForGraphYScale:
                     if (trimmedText == "lin")
                         m_tempYScale = AxisScale::Linear;
                     else if (trimmedText == "log")
@@ -589,11 +637,11 @@ private slots:
                         return;
                     }
 
-                    m_graphState = GraphWizardState::WaitingForDescription;
-                    updateGraphPrompt ("descripción de la figura");
+                    m_wizardState = WizardState::WaitingForGraphDescription;
+                    updateWizardPrompt ("descripción de la figura");
                     break;
 
-                case GraphWizardState::WaitingForDescription:
+                case WizardState::WaitingForGraphDescription:
                     {
                         if (auto* gBlock = dynamic_cast<GraphBlock*> (m_document.getBlock (m_activeBlockIndex))) {
                             gBlock->setGraphType (m_tempGraphType);
@@ -603,7 +651,7 @@ private slots:
                             gBlock->setScales (m_tempXScale, m_tempYScale);
                             gBlock->setDescription (trimmedText);
                         }
-                        m_graphState = GraphWizardState::Idle;
+                        m_wizardState = WizardState::Idle;
                         refreshUI();
                     }
                     break;
@@ -623,7 +671,7 @@ private slots:
 
         refreshUI();
 
-        if (Block* currentBlock = m_document.getBlock(m_activeBlockIndex)) {
+        if (Block* currentBlock = m_document.getBlock (m_activeBlockIndex)) {
             if (currentBlock->getType() == BlockType::Image && currentBlock->getContent().isEmpty()) {
                 QFileDialog dialog (this, "Seleccionar Imagen");
                 dialog.setOption (QFileDialog::DontUseNativeDialog, true);
@@ -656,14 +704,91 @@ private slots:
                     refreshUI();
                 }
             }
-            else if (currentBlock->getType() == BlockType::Graph && m_graphState == GraphWizardState::Idle) {
-                m_graphState = GraphWizardState::WaitingForType;
-                updateGraphPrompt ("lin (línea) o sct (dispersión)");
+            else if (currentBlock->getType() == BlockType::Graph && m_wizardState == WizardState::Idle) {
+                m_wizardState = WizardState::WaitingForGraphType;
+                updateWizardPrompt ("lin (línea) o sct (dispersión)");
             }
         }
     }
 
 private:
+    void exportToMarkdown() {
+        QString filePath = QFileDialog::getSaveFileName (this, "Exportar a Markdown", "", "Archivos Markdown (*.md)");
+        if (filePath.isEmpty())
+            return;
+
+        if (!filePath.endsWith (".md", Qt::CaseInsensitive)) {
+            filePath += ".md";
+        }
+
+        QFileInfo fileInfo (filePath);
+        QDir exportDir = fileInfo.dir();
+        QString imagesDirName = "images";
+        QDir imagesDir (exportDir.filePath (imagesDirName));
+
+        if (!imagesDir.exists()) {
+            exportDir.mkdir (imagesDirName);
+        }
+
+        QString mdContent;
+        size_t count = m_document.getBlockCount();
+        int graphCounter = 1;
+
+        for (size_t i = 0; i < count; ++i) {
+            const Block* block = m_document.getBlock (i);
+            if (!block)
+                continue;
+
+            BlockType type = block->getType();
+
+            if (type == BlockType::Title) {
+                mdContent += "# " + block->getContent() + "\n\n";
+            }
+            else if (type == BlockType::Subtitle) {
+                mdContent += "### " + block->getContent() + "\n\n";
+            }
+            else if (type == BlockType::Paragraph) {
+                mdContent += block->getContent() + "\n\n";
+            }
+            else if (type == BlockType::Image) {
+                QString srcPath = block->getContent();
+                if (!srcPath.isEmpty() && QFile::exists (srcPath)) {
+                    QFileInfo imgInfo (srcPath);
+                    QString destFileName = imgInfo.fileName();
+                    QString destPath = imagesDir.filePath (destFileName);
+
+                    QFile::copy (srcPath, destPath);
+                    mdContent += QString ("![Imagen](%1/%2)\n").arg (imagesDirName, destFileName);
+                    mdContent += QString ("> *%1*\n\n").arg (destFileName);
+                } else {
+                    mdContent += "![Imagen](imagen_no_encontrada)\n";
+                    mdContent += "> *imagen_no_encontrada*\n\n";
+                }
+            }
+            else if (type == BlockType::Graph) {
+                if (const GraphBlock* gBlock = dynamic_cast<const GraphBlock*> (block)) {
+                    QString graphFileName = QString ("grafico_%1.png").arg (graphCounter++);
+                    QString destPath = imagesDir.filePath (graphFileName);
+
+                    QPixmap pixmap = GraphRenderer::render (*gBlock, 800, 520, 2.0);
+                    pixmap.save (destPath, "PNG");
+
+                    mdContent += QString ("![Gráfico](%1/%2)\n").arg (imagesDirName, graphFileName);
+                }
+            }
+        }
+
+        QFile outFile (filePath);
+        if (outFile.open (QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out (&outFile);
+            out << mdContent;
+            outFile.close();
+            m_statusLabel->setText ("Documento exportado exitosamente a: " + filePath);
+        } else {
+            m_statusLabel->setText ("Error al exportar el archivo Markdown");
+        }
+    }
+
     void discardActiveBlock() {
         if (m_document.getBlockCount() > 1) {
             size_t indexToDelete = m_activeBlockIndex;
@@ -676,12 +801,12 @@ private:
     }
 
     bool navigationLocked() const {
-        return m_graphState != GraphWizardState::Idle;
+        return m_wizardState != WizardState::Idle;
     }
 
     void showLockedMessage() {
         QString previous = m_statusLabel->text();
-        m_statusLabel->setText ("Terminá el gráfico o cancelalo con 'can;;' antes de cambiar de bloque");
+        m_statusLabel->setText ("Terminá la operación actual o cancelala con 'can;;' antes de cambiar de bloque");
         QTimer::singleShot (2500, this, [this, previous]() {
             m_statusLabel->setText (previous);
         });
@@ -697,7 +822,7 @@ private:
         refreshUI();
     }
 
-    void updateGraphPrompt (const QString& promptText) {
+    void updateWizardPrompt (const QString& promptText) {
         if (m_activeTextEdit) {
             m_activeTextEdit->clear();
             m_activeTextEdit->setPlaceholderText (promptText);
@@ -782,7 +907,7 @@ private:
         QFileDialog dialog (this, "Seleccionar Archivo CSV");
         dialog.setOption (QFileDialog::DontUseNativeDialog, true);
         dialog.setFileMode (QFileDialog::ExistingFile);
-        dialog.setNameFilter  ("Archivos CSV (*.csv)");
+        dialog.setNameFilter ("Archivos CSV (*.csv)");
         dialog.setViewMode (QFileDialog::Detail);
         dialog.setStyleSheet(
             "QDialog { background-color: #Fdfdfd; }"
@@ -796,14 +921,14 @@ private:
             if (!files.isEmpty()) {
                 QString path = files.first();
                 if (parseCsvFile (path)) {
-                    m_graphState = GraphWizardState::WaitingForXScale;
-                    updateGraphPrompt (QString ("CSV cargado (%1 series Y). Escala eje X: 'lin' o 'log'").arg (m_tempYSeries.size()));
+                    m_wizardState = WizardState::WaitingForGraphXScale;
+                    updateWizardPrompt (QString ("CSV cargado (%1 series Y). Escala eje X: 'lin' o 'log'").arg (m_tempYSeries.size()));
                 } else {
-                    updateGraphPrompt ("Error al leer el CSV. Escribe 'can;;' para cancelar o reintenta.");
+                    updateWizardPrompt ("Error al leer el CSV. Escribe 'can;;' para cancelar o reintenta.");
                 }
             }
         } else {
-            m_graphState = GraphWizardState::Idle;
+            m_wizardState = WizardState::Idle;
             discardActiveBlock();
         }
     }
@@ -1017,10 +1142,10 @@ private:
 
                 updateHeight();
                 
-                QTimer::singleShot(0, this, [this]() {
+                QTimer::singleShot (0, this, [this]() {
                     if (m_activeTextEdit) {
                         m_activeTextEdit->setFocus();
-                        m_activeTextEdit->moveCursor(QTextCursor::End);
+                        m_activeTextEdit->moveCursor (QTextCursor::End);
                     }
                 });
             } else {

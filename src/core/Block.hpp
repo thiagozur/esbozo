@@ -19,8 +19,6 @@ public:
 
     virtual BlockType getType() const = 0;
 
-    virtual QString toMarkdown() const = 0;
-
     virtual void setContent (const QString& content) = 0;
     virtual QString getContent() const = 0;
 };
