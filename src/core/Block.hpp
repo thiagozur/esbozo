@@ -10,7 +10,8 @@ enum class BlockType {
     Title,
     Subtitle,
     Graph,
-    Image
+    Image,
+    Equation
 };
 
 class Block {

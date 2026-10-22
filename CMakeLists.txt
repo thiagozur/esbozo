@@ -23,7 +23,9 @@ set(HEADERS
     src/core/ParagraphBlock.hpp
     src/core/ImageBlock.hpp
     src/core/GraphBlock.hpp
+    src/core/EquationBlock.hpp
     src/core/GraphRenderer.hpp
+    src/core/MathRenderer.hpp
     src/core/Document.hpp
     src/core/InlineMarkup.hpp
     src/core/CommandProcessor.hpp

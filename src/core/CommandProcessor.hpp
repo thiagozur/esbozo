@@ -6,6 +6,7 @@
 #include "ParagraphBlock.hpp"
 #include "ImageBlock.hpp"
 #include "GraphBlock.hpp"
+#include "EquationBlock.hpp"
 #include <QString>
 #include <memory>
 
@@ -31,7 +32,7 @@ public:
     }
 
     static QStringList getSupportedCommands() {
-        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "sttl;;", "ttl;;", "par;;", "grf;;", "ft;;"};
+        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "sttl;;", "ttl;;", "par;;", "grf;;", "ft;;", "eq;;"};
     }
 
     CommandResult processInput (const QString& input) {
@@ -99,6 +100,9 @@ public:
         }
         else if (triggeredCommand == "ft;;") {
             createNewBlock(std::make_unique<ImageBlock>());
+            return CommandResult::BlockCreated;
+        } else if (triggeredCommand == "eq;;") {
+            createNewBlock (std::make_unique<EquationBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "del;;") {
