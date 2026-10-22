@@ -21,6 +21,9 @@
 #include <QColor>
 #include <QFont>
 #include <QTextStream>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <memory>
 #include <limits>
 
@@ -131,6 +134,7 @@ private:
     Document m_document;
     CommandProcessor m_processor;
     size_t m_activeBlockIndex;
+    QString m_currentFilePath;
 
     GraphWizardState m_graphState = GraphWizardState::Idle;
     GraphType m_tempGraphType = GraphType::Line;
@@ -149,7 +153,7 @@ private:
 
 public:
     EsbozoWindow() : m_processor (m_document), m_activeBlockIndex (0) {
-        setWindowTitle ("Esbozo");
+        updateWindowTitle();
         resize (800, 600);
 
         if (m_document.getBlockCount() == 0) {
@@ -200,6 +204,15 @@ protected:
                     saveAndNavigate (1);
                     return true;
                 }
+                else if (keyEvent->key() == Qt::Key_S) {
+                    saveCurrentContent();
+                    saveProject();
+                    return true;
+                }
+                else if (keyEvent->key() == Qt::Key_O) {
+                    openProject();
+                    return true;
+                }
             }
             
             if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
@@ -243,6 +256,17 @@ protected:
                 event->accept();
                 return;
             }
+            else if (event->key() == Qt::Key_S) {
+                saveCurrentContent();
+                saveProject();
+                event->accept();
+                return;
+            }
+            else if (event->key() == Qt::Key_O) {
+                openProject();
+                event->accept();
+                return;
+            }
         }
         QMainWindow::keyPressEvent (event);
     }
@@ -254,8 +278,191 @@ protected:
     }
 
 private slots:
+    void saveProject() {
+        if (m_currentFilePath.isEmpty()) {
+            QString filePath = QFileDialog::getSaveFileName (this, "Guardar Proyecto", "", "Archivos Esbozo (*.sbz)");
+            if (filePath.isEmpty())
+                return;
+            if (!filePath.endsWith(".sbz", Qt::CaseInsensitive)) {
+                filePath += ".sbz";
+            }
+            m_currentFilePath = filePath;
+        }
+
+        QJsonObject rootObj;
+        rootObj["sbz_version"] = "1.0";
+
+        QJsonArray blocksArray;
+        size_t count = m_document.getBlockCount();
+        for (size_t i = 0; i < count; ++i) {
+            const Block* block = m_document.getBlock (i);
+            if (!block)
+                continue;
+
+            QJsonObject blockObj;
+            BlockType type = block->getType();
+
+            if (type == BlockType::Title)
+                blockObj["type"] = "Title";
+            else if (type == BlockType::Subtitle)
+                blockObj["type"] = "Subtitle";
+            else if (type == BlockType::Paragraph)
+                blockObj["type"] = "Paragraph";
+            else if (type == BlockType::Image)
+                blockObj["type"] = "Image";
+            else if (type == BlockType::Graph)
+                blockObj["type"] = "Graph";
+
+            blockObj["content"] = block->getContent();
+
+            if (type == BlockType::Graph) {
+                if (const GraphBlock* gBlock = dynamic_cast<const GraphBlock*> (block)) {
+                    blockObj["graphType"] = (gBlock->getGraphType() == GraphType::Line) ? "Line" : "Scatter";
+                    blockObj["graphSource"] = (gBlock->getGraphSource() == GraphSource::Csv) ? "Csv" : "Manual";
+                    blockObj["scaleX"] = (gBlock->getScaleX() == AxisScale::Log) ? "Log" : "Linear";
+                    blockObj["scaleY"] = (gBlock->getScaleY() == AxisScale::Log) ? "Log" : "Linear";
+                    blockObj["description"] = gBlock->getDescription();
+                    blockObj["csvPath"] = gBlock->getCsvPath();
+
+                    QJsonObject xObj;
+                    xObj["name"] = gBlock->getSeriesX().name;
+                    QJsonArray xValsArr;
+                    for (double val : gBlock->getSeriesX().values)
+                        xValsArr.append (val);
+                    xObj["values"] = xValsArr;
+                    blockObj["seriesX"] = xObj;
+
+                    QJsonArray ySeriesArr;
+                    for (const DataSeries& ds : gBlock->getSeriesYList()) {
+                        QJsonObject dsObj;
+                        dsObj["name"] = ds.name;
+                        QJsonArray yValsArr;
+                        for (double val : ds.values)
+                            yValsArr.append (val);
+                        dsObj["values"] = yValsArr;
+                        ySeriesArr.append (dsObj);
+                    }
+                    blockObj["seriesYList"] = ySeriesArr;
+                }
+            }
+            blocksArray.append (blockObj);
+        }
+        rootObj["blocks"] = blocksArray;
+
+        QJsonDocument doc (rootObj);
+        QFile file (m_currentFilePath);
+        if (file.open (QIODevice::WriteOnly)) {
+            file.write (doc.toJson());
+            file.close();
+            updateWindowTitle();
+            m_statusLabel->setText ("Proyecto guardado exitosamente en: " + m_currentFilePath);
+        } else {
+            m_statusLabel->setText ("Error al guardar el archivo");
+        }
+    }
+
+    void openProject() {
+        QString filePath = QFileDialog::getOpenFileName (this, "Abrir Proyecto", "", "Archivos Esbozo (*.sbz)");
+        if (filePath.isEmpty())
+            return;
+
+        QFile file (filePath);
+        if (!file.open (QIODevice::ReadOnly)) {
+            m_statusLabel->setText("Error al abrir el archivo");
+            return;
+        }
+
+        QByteArray data = file.readAll();
+        file.close();
+
+        QJsonDocument doc = QJsonDocument::fromJson (data);
+        if (doc.isNull() || !doc.isObject()) {
+            m_statusLabel->setText ("El archivo no es válido");
+            return;
+        }
+
+        QJsonObject rootObj = doc.object();
+        QJsonArray blocksArray = rootObj["blocks"].toArray();
+
+        m_document = Document();
+        m_activeBlockIndex = 0;
+
+        for (const QJsonValue& val : blocksArray) {
+            QJsonObject blockObj = val.toObject();
+            QString typeStr = blockObj["type"].toString();
+            QString content = blockObj["content"].toString();
+
+            if (typeStr == "Title") {
+                auto b = std::make_unique<TitleBlock>();
+                b->setContent (content);
+                m_document.addBlock (std::move (b));
+            } else if (typeStr == "Subtitle") {
+                auto b = std::make_unique<SubtitleBlock>();
+                b->setContent (content);
+                m_document.addBlock (std::move (b));
+            } else if (typeStr == "Paragraph") {
+                auto b = std::make_unique<ParagraphBlock>();
+                b->setContent (content);
+                m_document.addBlock (std::move (b));
+            } else if (typeStr == "Image") {
+                auto b = std::make_unique<ImageBlock>();
+                b->setContent (content);
+                m_document.addBlock (std::move (b));
+            } else if (typeStr == "Graph") {
+                auto b = std::make_unique<GraphBlock>();
+                b->setContent (content);
+                b->setGraphType (blockObj["graphType"].toString() == "Scatter" ? GraphType::Scatter : GraphType::Line);
+                b->setGraphSource (blockObj["graphSource"].toString() == "Csv" ? GraphSource::Csv : GraphSource::Manual);
+                b->setScales(
+                    blockObj["scaleX"].toString() == "Log" ? AxisScale::Log : AxisScale::Linear,
+                    blockObj["scaleY"].toString() == "Log" ? AxisScale::Log : AxisScale::Linear
+                );
+                b->setDescription (blockObj["description"].toString());
+                b->setCsvPath (blockObj["csvPath"].toString());
+
+                QJsonObject xObj = blockObj["seriesX"].toObject();
+                QString xName = xObj["name"].toString();
+                QVector<double> xVals;
+                for (const QJsonValue& xv : xObj["values"].toArray()) xVals.append (xv.toDouble());
+                b->setSeriesX (xName, xVals);
+
+                QVector<DataSeries> ySeriesList;
+                for (const QJsonValue& yvObj : blockObj["seriesYList"].toArray()) {
+                    QJsonObject dsObj = yvObj.toObject();
+                    DataSeries ds;
+                    ds.name = dsObj["name"].toString();
+                    for (const QJsonValue& yv : dsObj["values"].toArray()) ds.values.append (yv.toDouble());
+                    ySeriesList.append (ds);
+                }
+                b->setSeriesYList (ySeriesList);
+
+                m_document.addBlock (std::move (b));
+            }
+        }
+
+        if (m_document.getBlockCount() == 0) {
+            m_document.addBlock (std::make_unique<TitleBlock>());
+        }
+
+        m_currentFilePath = filePath;
+        updateWindowTitle();
+        m_statusLabel->setText ("Proyecto cargado exitosamente desde: " + filePath);
+        refreshUI();
+    }
+
+    void updateWindowTitle() {
+        QString title = "Esbozo";
+        if (!m_currentFilePath.isEmpty()) {
+            title += " - " + QFileInfo (m_currentFilePath).fileName();
+        } else {
+            title += " - [Nuevo Proyecto]";
+        }
+        setWindowTitle (title);
+    }
+
     void handleInputSubmitted() {
-        if (!m_activeTextEdit) return;
+        if (!m_activeTextEdit)
+            return;
 
         QString text = m_activeTextEdit->toPlainText();
 
@@ -424,7 +631,6 @@ private slots:
                 if (dialog.exec() == QDialog::Accepted) {
                     QStringList files = dialog.selectedFiles();
                     if (!files.isEmpty()) {
-
                         currentBlock->setContent (files.first());
                         refreshUI(); 
                     }
