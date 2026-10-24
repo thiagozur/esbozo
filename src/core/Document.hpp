@@ -1,9 +1,10 @@
 #pragma once
 
-#include "Block.hpp"
 #include <vector>
 #include <memory>
 #include <QString>
+
+#include "Block.hpp"
 
 class Document {
 private:

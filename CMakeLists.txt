@@ -24,8 +24,10 @@ set(HEADERS
     src/core/ImageBlock.hpp
     src/core/GraphBlock.hpp
     src/core/EquationBlock.hpp
+    src/core/TableBlock.hpp
     src/core/GraphRenderer.hpp
     src/core/EquationRenderer.hpp
+    src/core/TableRenderer.hpp
     src/core/Document.hpp
     src/core/InlineMarkup.hpp
     src/core/CommandProcessor.hpp

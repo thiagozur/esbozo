@@ -34,6 +34,7 @@
 #include "core/CommandProcessor.hpp"
 #include "core/GraphRenderer.hpp"
 #include "core/EquationRenderer.hpp"
+#include "core/TableRenderer.hpp"
 #include "core/InlineMarkup.hpp"
 
 class ClickableLabel : public QLabel {
@@ -150,6 +151,37 @@ public:
     }
 };
 
+class TableLabel : public ClickableLabel {
+    Q_OBJECT
+private:
+    QVector<QStringList> m_data;
+    QString m_title;
+    bool m_hasHeaderRow, m_hasRowNames;
+    int m_lastWidth = -1;
+    qreal m_lastDpr = 0.0;
+    static constexpr int kChrome = 2 * (8 + 1);
+
+public:
+    TableLabel (const QVector<QStringList>& data, const QString& title, bool hasHeader, bool hasRowNames, QWidget *parent = nullptr)
+        : ClickableLabel ("", parent), m_data (data), m_title (title), m_hasHeaderRow (hasHeader), m_hasRowNames (hasRowNames)
+    {
+        setAlignment (Qt::AlignCenter);
+        setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
+    }
+
+    void setBoxWidth (int boxWidth) {
+        int pixWidth = qMax (200, boxWidth - kChrome);
+        qreal dpr = devicePixelRatioF();
+        if (pixWidth == m_lastWidth && dpr == m_lastDpr) return;
+        m_lastWidth = pixWidth;
+        m_lastDpr = dpr;
+
+        int pixHeight = TableRenderer::preferredHeight (m_data, m_title);
+        setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr));
+        setFixedSize (pixWidth + kChrome, pixHeight + kChrome);
+    }
+};
+
 enum class WizardState {
     Idle,
     WaitingForGraphType,
@@ -161,7 +193,11 @@ enum class WizardState {
     WaitingForGraphXScale,
     WaitingForGraphYScale,
     WaitingForGraphDescription,
-    WaitingForExportFormat
+    WaitingForExportFormat,
+    WaitingForTableFile,
+    WaitingForTableHeader,
+    WaitingForTableRowNames,
+    WaitingForTableTitle
 };
 
 class EsbozoWindow : public QMainWindow {
@@ -187,6 +223,11 @@ private:
     QScrollArea *m_scrollArea;
     QLabel *m_statusLabel;
     QTextEdit *m_activeTextEdit = nullptr;
+
+    QString m_tempTableCsvPath;
+    QVector<QStringList> m_tempTableData;
+    bool m_tempTableHasHeader = true;
+    bool m_tempTableHasRowNames = false;
 
 public:
     EsbozoWindow() : m_processor (m_document), m_activeBlockIndex (0) {
@@ -389,6 +430,8 @@ private slots:
                 blockObj["type"] = "Graph";
             else if (type == BlockType::Equation)
                 blockObj["type"] = "Equation";
+            else if (type == BlockType::Table)
+                blockObj["type"] = "Table";
 
             blockObj["content"] = block->getContent();
 
@@ -420,6 +463,20 @@ private slots:
                         ySeriesArr.append (dsObj);
                     }
                     blockObj["seriesYList"] = ySeriesArr;
+                }
+            } else if (type == BlockType::Table) {
+                if (const TableBlock* tableBlock = dynamic_cast<const TableBlock*> (block)) {
+                    blockObj["csvPath"] = tableBlock->getCsvPath();
+                    blockObj["hasHeaderRow"] = tableBlock->hasHeaderRow();
+                    blockObj["hasRowNames"] = tableBlock->hasRowNames();
+                    QJsonArray rowsArr;
+                    for (const QStringList& row : tableBlock->getData()) {
+                        QJsonArray r;
+                        for (const QString& cell : row)
+                            r.append (cell);
+                        rowsArr.append (r);
+                    }
+                    blockObj["data"] = rowsArr;
                 }
             }
             blocksArray.append (blockObj);
@@ -518,6 +575,21 @@ private slots:
                 auto b = std::make_unique<EquationBlock>();
                 b->setContent (content);
                 m_document.addBlock (std::move (b));
+            } else if (typeStr == "Table") {
+                auto b = std::make_unique<TableBlock>();
+                b->setContent (content);
+                b->setCsvPath (blockObj["csvPath"].toString());
+                b->setHasHeaderRow (blockObj["hasHeaderRow"].toBool(true));
+                b->setHasRowNames (blockObj["hasRowNames"].toBool(false));
+                QVector<QStringList> data;
+                for (const QJsonValue& rv : blockObj["data"].toArray()) {
+                    QStringList row;
+                    for (const QJsonValue& cv : rv.toArray())
+                        row << cv.toString();
+                    data.append (row);
+                }
+                b->setData (data);
+                m_document.addBlock (std::move (b));
             }
         }
 
@@ -561,8 +633,12 @@ private slots:
             QString trimmedText = text.trimmed();
 
             if (trimmedText == "can;;") {
+                const bool wasExport = (m_wizardState == WizardState::WaitingForExportFormat);
                 m_wizardState = WizardState::Idle;
-                refreshUI();
+                if (wasExport)
+                    refreshUI();
+                else
+                    discardActiveBlock();
                 return;
             }
 
@@ -694,6 +770,47 @@ private slots:
                     }
                     break;
                 
+                case WizardState::WaitingForTableHeader:
+                    if (trimmedText == "s" || trimmedText == "sí" || trimmedText == "si")
+                        m_tempTableHasHeader = true;
+                    else if (trimmedText == "n" || trimmedText == "no")
+                        m_tempTableHasHeader = false;
+                    else {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
+                    m_wizardState = WizardState::WaitingForTableRowNames;
+                    updateWizardPrompt ("filas nombradas en la primera columna (s/n)");
+                    break;
+
+                case WizardState::WaitingForTableRowNames:
+                    if (trimmedText == "s" || trimmedText == "sí" || trimmedText == "si")
+                        m_tempTableHasRowNames = true;
+                    else if (trimmedText == "n" || trimmedText == "no")
+                        m_tempTableHasRowNames = false;
+                    else {
+                        m_activeTextEdit->clear();
+                        return;
+                    }
+                    m_wizardState = WizardState::WaitingForTableTitle;
+                    updateWizardPrompt ("título de la tabla");
+                    break;
+
+                case WizardState::WaitingForTableTitle:
+                    {
+                        if (auto* tableBlock = dynamic_cast<TableBlock*> (m_document.getBlock (m_activeBlockIndex))) {
+                            tableBlock->setCsvPath (m_tempTableCsvPath);
+                            tableBlock->setHasHeaderRow (m_tempTableHasHeader);
+                            tableBlock->setHasRowNames (m_tempTableHasRowNames);
+                            tableBlock->setTitle (trimmedText);
+                            tableBlock->setContent (trimmedText);
+                            tableBlock->setData (m_tempTableData);
+                        }
+                        m_wizardState = WizardState::Idle;
+                        refreshUI();
+                    }
+                    break;
+                
                 default:
                     break;
             }
@@ -745,6 +862,9 @@ private slots:
             else if (currentBlock->getType() == BlockType::Graph && m_wizardState == WizardState::Idle) {
                 m_wizardState = WizardState::WaitingForGraphType;
                 updateWizardPrompt ("lin (línea) o sct (dispersión)");
+            } else if (currentBlock->getType() == BlockType::Table && m_wizardState == WizardState::Idle) {
+                m_wizardState = WizardState::WaitingForTableFile;
+                openTableCsvFileDialog();
             }
         }
     }
@@ -815,6 +935,39 @@ private:
                 }
             } else if (type == BlockType::Equation) {
                 mdContent += "$$\n" + block->getContent() + "\n$$\n\n";
+            } else if (type == BlockType::Table) {
+                if (const TableBlock* tableBlock = dynamic_cast<const TableBlock*> (block)) {
+                    const QVector<QStringList>& td = tableBlock->getData();
+                    if (!td.isEmpty()) {
+                        if (!tableBlock->getTitle().isEmpty())
+                            mdContent += QString ("**%1**\n\n").arg (tableBlock->getTitle());
+
+                        int ncols = 0;
+                        for (const QStringList& r : td)
+                            ncols = qMax (ncols, static_cast<int> (r.size()));
+
+                        auto rowToMd = [ncols] (const QStringList& r) {
+                            QString line = "|";
+                            for (int c = 0; c < ncols; ++c) {
+                                QString cell = c < r.size() ? r[c] : QString();
+                                cell.replace ("|", "\\|");
+                                line += " " + cell + " |";
+                            }
+                            return line + "\n";
+                        };
+
+                        int start = 0;
+                        if (tableBlock->hasHeaderRow()) {
+                            mdContent += rowToMd (td[0]);
+                            start = 1;
+                        } else {
+                            mdContent += rowToMd (QStringList());
+                        }
+                        mdContent += "|" + QString (" --- |").repeated (ncols) + "\n";
+                        for (int r = start; r < td.size(); ++r) mdContent += rowToMd (td[r]);
+                        mdContent += "\n";
+                    }
+                }
             }
         }
 
@@ -973,6 +1126,40 @@ private:
         }
     }
 
+    void openTableCsvFileDialog() {
+        QFileDialog dialog (this, "Seleccionar Archivo CSV para Tabla");
+        dialog.setOption (QFileDialog::DontUseNativeDialog, true);
+        dialog.setFileMode (QFileDialog::ExistingFile);
+        dialog.setNameFilter ("Archivos CSV (*.csv)");
+        dialog.setViewMode (QFileDialog::Detail);
+        dialog.setStyleSheet(
+            "QDialog { background-color: #Fdfdfd; }"
+            "QLabel { color: #333333; font-family: 'Segoe UI'; }"
+            "QPushButton { background-color: #4682B4; color: white; border-radius: 4px; padding: 6px 12px; font-family: 'Segoe UI'; }"
+            "QPushButton:hover { background-color: #3b6e9b; }"
+        );
+
+        if (dialog.exec() == QDialog::Accepted) {
+            QStringList files = dialog.selectedFiles();
+            if (!files.isEmpty()) {
+                bool ok = false;
+                m_tempTableData = TableRenderer::loadCsvFile (files.first(), &ok);
+                if (ok) {
+                    m_tempTableCsvPath = files.first();
+                    m_wizardState = WizardState::WaitingForTableHeader;
+                    updateWizardPrompt ("columnas nombradas en la primera fila (s/n)");
+                } else {
+                    m_wizardState = WizardState::Idle;
+                    discardActiveBlock();
+                    m_statusLabel->setText ("No se pudo leer el CSV");
+                }
+            }
+        } else {
+            m_wizardState = WizardState::Idle;
+            discardActiveBlock();
+        }
+    }
+
     bool canFormat() const {
         if (!m_activeTextEdit || navigationLocked())
             return false;
@@ -1059,16 +1246,19 @@ private:
 
     void updateImageWidths() {
         int available = m_scrollArea->width() - 2 * m_scrollArea->frameWidth() - 40;
-        int boxWidth = qMax (100, available / 2);
+        int imageBoxWidth = qMax (100, available / 2);
+        int tableBoxWidth = qMax (100, available * 3 / 4);
 
         for (int i = 0; i < m_documentLayout->count(); ++i) {
             QLayoutItem *item = m_documentLayout->itemAt (i);
             if (auto *img = qobject_cast<ImageLabel*> (item->widget())) {
-                img->setBoxWidth (boxWidth);
+                img->setBoxWidth (imageBoxWidth);
             } else if (auto *gr = qobject_cast<GraphLabel*> (item->widget())) {
                 gr->setBoxWidth (available * 3 / 4);
             } else if (auto *eq = qobject_cast<EquationLabel*> (item->widget())) {
                 eq->setBoxWidth (available * 3 / 4);
+            } else if (auto *tb = qobject_cast<TableLabel*> (item->widget())) {
+                tb->setBoxWidth (tableBoxWidth);
             }
         }
     }
@@ -1231,6 +1421,20 @@ private:
                     connect (eqLabel, &EquationLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
 
                     m_documentLayout->addWidget (eqLabel, 0, Qt::AlignCenter);
+                } else if (type == BlockType::Table) {
+                    if (const TableBlock* tableBlock = dynamic_cast<const TableBlock*> (block)) {
+                        TableLabel *tableLabel = new TableLabel (
+                            tableBlock->getData(),
+                            tableBlock->getTitle(),
+                            tableBlock->hasHeaderRow(),
+                            tableBlock->hasRowNames(),
+                            m_containerWidget
+                        );
+
+                        connect (tableLabel, &TableLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
+                        
+                        m_documentLayout->addWidget (tableLabel, 0, Qt::AlignCenter);
+                    }
                 } else {
                     QString content = block->getContent();
                     QString html = content.isEmpty() ? QString ("(vacío)") : InlineMarkup::toHtml (content);

@@ -1,9 +1,10 @@
 ﻿#pragma once
 
-#include "Block.hpp"
 #include <QString>
 #include <QVector>
 #include <QPair>
+
+#include "Block.hpp"
 
 enum class GraphType {
     Line,

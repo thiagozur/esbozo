@@ -1,5 +1,8 @@
 ﻿#pragma once
 
+#include <QString>
+#include <memory>
+
 #include "Document.hpp"
 #include "TitleBlock.hpp"
 #include "SubtitleBlock.hpp"
@@ -7,8 +10,8 @@
 #include "ImageBlock.hpp"
 #include "GraphBlock.hpp"
 #include "EquationBlock.hpp"
-#include <QString>
-#include <memory>
+#include "TableBlock.hpp"
+
 
 enum class CommandResult {
     None,
@@ -32,7 +35,7 @@ public:
     }
 
     static QStringList getSupportedCommands() {
-        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "sttl;;", "ttl;;", "par;;", "grf;;", "ft;;", "eq;;"};
+        return {"cpar;;", "cttl;;", "csttl;;", "rst;;", "del;;", "sttl;;", "ttl;;", "par;;", "grf;;", "ft;;", "eq;;", "tbl;;"};
     }
 
     CommandResult processInput (const QString& input) {
@@ -103,6 +106,9 @@ public:
             return CommandResult::BlockCreated;
         } else if (triggeredCommand == "eq;;") {
             createNewBlock (std::make_unique<EquationBlock>());
+            return CommandResult::BlockCreated;
+        } else if (triggeredCommand == "tbl;;") {
+            createNewBlock (std::make_unique<TableBlock>());
             return CommandResult::BlockCreated;
         }
         else if (triggeredCommand == "del;;") {

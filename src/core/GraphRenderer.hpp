@@ -1,6 +1,5 @@
 #pragma once
 
-#include "GraphBlock.hpp"
 #include <QPixmap>
 #include <QPainter>
 #include <QFontMetrics>
@@ -8,6 +7,8 @@
 #include <QVector>
 #include <cmath>
 #include <limits>
+
+#include "GraphBlock.hpp"
 
 namespace GraphRenderer {
 

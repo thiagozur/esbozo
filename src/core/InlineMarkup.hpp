@@ -1,12 +1,13 @@
 #pragma once
 
-#include "Block.hpp"
 #include <QString>
 #include <QFont>
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextCharFormat>
+
+#include "Block.hpp"
 
 namespace InlineMarkup {
 
