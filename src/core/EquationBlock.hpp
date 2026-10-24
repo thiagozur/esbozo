@@ -3,23 +3,22 @@
 #include "Block.hpp"
 
 class EquationBlock : public Block {
+private:
+    QString m_content;
+
 public:
     EquationBlock() = default;
-
-    explicit EquationBlock (const QString& latex) : m_content (latex) {}
+    ~EquationBlock() override = default;
 
     BlockType getType() const override {
         return BlockType::Equation;
     }
 
-    void setContent (const QString& c) override {
-        m_content = c;
+    void setContent (const QString& content) override {
+        m_content = content;
     }
 
     QString getContent() const override {
         return m_content;
     }
-
-private:
-    QString m_content;
 };

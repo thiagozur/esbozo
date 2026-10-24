@@ -33,8 +33,8 @@
 #include "core/Document.hpp"
 #include "core/CommandProcessor.hpp"
 #include "core/GraphRenderer.hpp"
+#include "core/EquationRenderer.hpp"
 #include "core/InlineMarkup.hpp"
-#include "core/MathRenderer.hpp"
 
 class ClickableLabel : public QLabel {
     Q_OBJECT
@@ -121,48 +121,32 @@ public:
 
 class EquationLabel : public ClickableLabel {
     Q_OBJECT
-
 private:
     QString m_latex;
+    int m_equationNumber;
     int m_lastWidth = -1;
     qreal m_lastDpr = 0.0;
     static constexpr int kChrome = 2 * (8 + 1);
 
 public:
-    explicit EquationLabel (const QString& latex, QWidget *parent = nullptr) : ClickableLabel ("", parent), m_latex (latex) {
+    explicit EquationLabel (const QString &latex, int eqNum, QWidget *parent = nullptr)
+        : ClickableLabel ("", parent), m_latex (latex), m_equationNumber (eqNum)
+    {
         setAlignment (Qt::AlignCenter);
-
-        if (latex.trimmed().isEmpty()) {
-            setText ("(ecuación vacía)");
-            setStyleSheet ("QLabel { color: #888888; font-style: italic; padding: 6px; }");
-        } else {
-            setStyleSheet ("QLabel { padding: 8px; background-color: #FCFCFC; " "border: 1px solid #E0E0E0; border-radius: 4px; }");
-        }
+        setStyleSheet ("QLabel { padding: 8px; background-color: #FAFAFA; border: 1px solid #E0E0E0; border-radius: 4px; }");
     }
 
     void setBoxWidth (int boxWidth) {
-        if (m_latex.trimmed().isEmpty()) return;
-
+        int pixWidth = qMax (200, boxWidth - kChrome);
         qreal dpr = devicePixelRatioF();
-        if (boxWidth == m_lastWidth && dpr == m_lastDpr) return;
-        m_lastWidth = boxWidth;
+        if (pixWidth == m_lastWidth && dpr == m_lastDpr)
+            return;
+        m_lastWidth = pixWidth;
         m_lastDpr = dpr;
 
-        QPixmap pm = MathRenderer::render (m_latex, dpr);
-        if (pm.isNull()) return;
-
-        QSizeF logical = pm.deviceIndependentSize();
-        const int maxLogicalW = qMax (80, boxWidth - kChrome);
-
-        if (logical.width() > maxLogicalW) {
-            const int newPixW = qRound (maxLogicalW * dpr);
-            pm = pm.scaledToWidth (newPixW, Qt::SmoothTransformation);
-            pm.setDevicePixelRatio (dpr);
-            logical = pm.deviceIndependentSize();
-        }
-
-        setPixmap (pm);
-        setFixedSize (qRound (logical.width()) + kChrome, qRound (logical.height()) + kChrome);
+        int pixHeight = EquationRenderer::preferredHeight (m_latex, pixWidth, m_equationNumber);
+        setPixmap (EquationRenderer::render (m_latex, pixWidth, pixHeight, dpr, m_equationNumber));
+        setFixedSize (pixWidth + kChrome, pixHeight + kChrome);
     }
 };
 
@@ -1014,7 +998,7 @@ private:
     QString inputForProcessor() {
         QString plain = m_activeTextEdit->toPlainText();
         const Block* b = m_document.getBlock (m_activeBlockIndex);
-        if (!b || b->getType() == BlockType::Equation || !InlineMarkup::isRichType (b->getType()))
+        if (!b || !InlineMarkup::isRichType (b->getType()))
             return plain;
 
         QString cmd;
@@ -1052,12 +1036,9 @@ private:
             return;
         if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
             if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-                if (current->getType() == BlockType::Equation)
-                    current->setContent (m_activeTextEdit->toPlainText());
-                else if (InlineMarkup::isRichType (current->getType()))
-                    current->setContent (InlineMarkup::serialize (m_activeTextEdit->document()));
-                else
-                    current->setContent (m_activeTextEdit->toPlainText());
+                current->setContent (InlineMarkup::isRichType (current->getType())
+                    ? InlineMarkup::serialize (m_activeTextEdit->document())
+                    : m_activeTextEdit->toPlainText());
             }
         }
     }
@@ -1148,31 +1129,32 @@ private:
                 QTextEdit *editBox = new QTextEdit (m_containerWidget);
                 editBox->setAcceptRichText (false);
 
-                    if (type == BlockType::Equation)
-                        editBox->setPlainText (block->getContent());
-                    else if (InlineMarkup::isRichType (type))
-                        InlineMarkup::load (editBox->document(), block->getContent());
-                    else
-                        editBox->setPlainText (block->getContent());
-                    editBox->moveCursor (QTextCursor::End);
+                if (InlineMarkup::isRichType (type))
+                    InlineMarkup::load (editBox->document(), block->getContent());
+                else
+                    editBox->setPlainText (block->getContent());
+                editBox->moveCursor (QTextCursor::End);
 
                 if (type == BlockType::Title) {
                     editBox->setFont (QFont ("Segoe UI", 16));
-                } else if (type == BlockType::Subtitle) {
+                }
+                else if (type == BlockType::Subtitle) {
                     editBox->setFont (QFont ("Segoe UI", 14));
-                } else if (type == BlockType::Image) {
+                }
+                else if (type == BlockType::Image) {
                     QFont f ("Segoe UI", 11);
                     f.setItalic (true);
                     editBox->setFont (f);
                     if (block->getContent().isEmpty()) {
                         editBox->setPlaceholderText ("Ruta de la imagen");
                     }
-                } else if (type == BlockType::Equation) {
-                    QFont f ("Consolas", 11);
-                    f.setStyleHint (QFont::Monospace);
-                    editBox->setFont (f);
-                    editBox->setPlaceholderText (QStringLiteral ("ecuación en LaTeX"));
-                } else {
+                }
+                else if (type == BlockType::Equation) {
+                    editBox->setFont (QFont ("Consolas", 12));
+                    if (block->getContent().isEmpty())
+                        editBox->setPlaceholderText ("ecuación en LaTeX");
+                }
+                else {
                     editBox->setFont (QFont ("Segoe UI", 13));
                 }
 
@@ -1235,10 +1217,19 @@ private:
                         m_documentLayout->addWidget (graphLabel, 0, Qt::AlignCenter);
                     }
                 } else if (type == BlockType::Equation) {
-                    EquationLabel *eqLabel = new EquationLabel (block->getContent(), m_containerWidget);
+                    QString content = block->getContent();
+                    
+                    int eqNum = 0;
+                    for (size_t k = 0; k <= i; ++k) {
+                        if (m_document.getBlock(k)->getType() == BlockType::Equation) {
+                            eqNum++;
+                        }
+                    }
+
+                    EquationLabel *eqLabel = new EquationLabel (content, eqNum, m_containerWidget);
 
                     connect (eqLabel, &EquationLabel::doubleClicked, this, [this, i]() { activateBlock (i); });
-                    
+
                     m_documentLayout->addWidget (eqLabel, 0, Qt::AlignCenter);
                 } else {
                     QString content = block->getContent();
