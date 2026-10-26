@@ -1042,4 +1042,41 @@ inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 
     return QPixmap::fromImage (img);
 }
 
+namespace detail {
+
+constexpr double kVectorDesign = kBaseSize * 8.0;
+
+struct VectorLayout {
+    Box box;
+    double k = 1.0;
+};
+
+inline VectorLayout vectorLayout (const QString& latex, double fontSize, double maxWidth) {
+    VectorLayout L;
+    Parser parser (latex);
+    L.box = parser.parseAll (kVectorDesign);
+    L.k = fontSize / kVectorDesign;
+    if (L.box.w > 0 && L.box.w * L.k > maxWidth)
+        L.k = qMax (L.k * 0.4, maxWidth / L.box.w);
+    return L;
+}
+
+}
+
+inline QSizeF measureScaled (const QString& latex, double fontSize, double maxWidth) {
+    const detail::VectorLayout L = detail::vectorLayout (latex, fontSize, maxWidth);
+    return QSizeF (L.box.w * L.k, L.box.h() * L.k);
+}
+
+inline void paintScaled (QPainter& p, const QString& latex, const QRectF& area, double fontSize) {
+    const detail::VectorLayout L = detail::vectorLayout (latex, fontSize, area.width());
+    const double bw = L.box.w * L.k;
+    const double bh = L.box.h() * L.k;
+    p.save();
+    p.translate (area.x() + (area.width() - bw) / 2.0, area.y() + (area.height() - bh) / 2.0 + L.box.asc * L.k);
+    p.scale (L.k, L.k);
+    if (L.box.paint) L.box.paint (p, 0.0, 0.0);
+    p.restore();
+}
+
 }

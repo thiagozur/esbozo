@@ -31,6 +31,7 @@ set(HEADERS
     src/core/Document.hpp
     src/core/InlineMarkup.hpp
     src/core/CommandProcessor.hpp
+    src/core/PdfExporter.hpp
 )
 
 add_executable(Esbozo

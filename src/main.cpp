@@ -36,6 +36,7 @@
 #include "core/EquationRenderer.hpp"
 #include "core/TableRenderer.hpp"
 #include "core/InlineMarkup.hpp"
+#include "core/PdfExporter.hpp"
 
 class ClickableLabel : public QLabel {
     Q_OBJECT
@@ -649,8 +650,8 @@ private slots:
                     exportToMarkdown();
                 } else if (trimmedText == "pdf") {
                     m_wizardState = WizardState::Idle;
-                    m_statusLabel->setText ("Exportación a PDF cancelada (no disponible por el momento)");
                     refreshUI();
+                    exportToPdf();
                 } else {
                     m_activeTextEdit->clear();
                 }
@@ -980,6 +981,25 @@ private:
         } else {
             m_statusLabel->setText ("Error al exportar el archivo Markdown");
         }
+    }
+
+    void exportToPdf() {
+        QString filePath = QFileDialog::getSaveFileName (this, "Exportar a PDF", "", "Archivos PDF (*.pdf)");
+        if (filePath.isEmpty())
+            return;
+        if (!filePath.endsWith (".pdf", Qt::CaseInsensitive))
+            filePath += ".pdf";
+
+        QApplication::setOverrideCursor (Qt::WaitCursor);
+        PdfExporter::Result res = PdfExporter::exportDocument (m_document, filePath);
+        QApplication::restoreOverrideCursor();
+
+        if (!res.ok)
+            m_statusLabel->setText ("Error al exportar el PDF: " + res.message);
+        else if (!res.message.isEmpty())
+            m_statusLabel->setText ("PDF exportado a: " + filePath + " (" + res.message + ")");
+        else
+            m_statusLabel->setText ("Documento exportado exitosamente a: " + filePath);
     }
 
     void discardActiveBlock() {
