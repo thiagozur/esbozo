@@ -131,6 +131,7 @@ inline void drawTextLine (QPainter& p, const QTextLine& line, double x, double y
             const QList<quint32> indexes = run.glyphIndexes();
             const QList<QPointF> positions = run.positions();
             QPainterPath path;
+            path.setFillRule (Qt::WindingFill);
             for (int i = 0; i < indexes.size() && i < positions.size(); ++i)
                 path.addPath (raw.pathForGlyph (indexes[i]).translated (origin + positions[i]));
             p.fillPath (path, Qt::black);

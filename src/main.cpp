@@ -991,7 +991,9 @@ private:
             filePath += ".pdf";
 
         QApplication::setOverrideCursor (Qt::WaitCursor);
-        PdfExporter::Result res = PdfExporter::exportDocument (m_document, filePath);
+        PdfExporter::Style style;
+        style.boldAsOutlines = false;
+        PdfExporter::Result res = PdfExporter::exportDocument (m_document, filePath, style);
         QApplication::restoreOverrideCursor();
 
         if (!res.ok)
