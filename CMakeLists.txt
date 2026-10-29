@@ -14,6 +14,12 @@ set(CMAKE_AUTOUIC ON)
 
 set(SOURCES
     src/main.cpp
+    src/ui/BlockWidgets.cpp
+    src/ui/Dialogs.cpp
+    src/ui/EsbozoWindow.cpp
+    src/ui/Wizard.cpp
+    src/io/MarkdownExporter.cpp
+    src/io/ProjectFile.cpp
 )
 
 set(HEADERS
@@ -32,11 +38,23 @@ set(HEADERS
     src/core/InlineMarkup.hpp
     src/core/CommandProcessor.hpp
     src/core/PdfExporter.hpp
+    src/ui/Theme.hpp
+    src/ui/BlockWidgets.hpp
+    src/ui/Dialogs.hpp
+    src/ui/EsbozoWindow.hpp
+    src/ui/Wizard.hpp
+    src/io/GraphCsv.hpp
+    src/io/MarkdownExporter.hpp
+    src/io/ProjectFile.hpp
 )
 
 add_executable(Esbozo
     ${SOURCES}
     ${HEADERS}
+)
+
+target_include_directories(Esbozo PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(Esbozo PRIVATE
