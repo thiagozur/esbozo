@@ -2,4 +2,3 @@ build/
 .vscode/
 test_assets/
 saves/
-tests/

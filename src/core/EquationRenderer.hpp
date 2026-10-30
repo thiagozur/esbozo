@@ -38,7 +38,21 @@ struct Atom {
     bool limits = false;
 };
 
-inline QColor ink() { return QColor (17, 17, 17); }
+inline QColor& inkSlot() {
+    static QColor c (17, 17, 17);
+    return c;
+}
+
+inline QColor ink() { return inkSlot(); }
+
+struct InkScope {
+    QColor previous;
+    explicit InkScope (const QColor& c) : previous (inkSlot()) { inkSlot() = c; }
+    ~InkScope() { inkSlot() = previous; }
+    InkScope (const InkScope&) = delete;
+    InkScope& operator= (const InkScope&) = delete;
+};
+
 inline QString U (char32_t cp) { return QString::fromUcs4 (&cp, 1); }
 
 inline QFont makeFont (double px, FontKind kind) {
@@ -50,7 +64,7 @@ inline QFont makeFont (double px, FontKind kind) {
     return f;
 }
 
-inline Box textBox (const QString& s, double px, FontKind kind, QColor color = QColor (17, 17, 17)) {
+inline Box textBox (const QString& s, double px, FontKind kind, QColor color = ink()) {
     const QFont f = makeFont (px, kind);
     const QFontMetricsF fm (f);
     const QRectF r = fm.tightBoundingRect (s);
@@ -1001,7 +1015,8 @@ inline int preferredHeight (const QString& latex, int width, int equationNumber 
     return qMax (50, static_cast<int> (std::ceil (L.box.h() * L.scale)) + 28);
 }
 
-inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 1.0, int equationNumber = 0) {
+inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 1.0, int equationNumber = 0, const QColor& inkColor = QColor (17, 17, 17)) {
+    const detail::InkScope inkScope (inkColor);
     const int w = qMax (100, width);
     const int h = qMax (50, height);
     QImage img (qRound (w * dpr), qRound (h * dpr), QImage::Format_ARGB32_Premultiplied);
@@ -1015,7 +1030,9 @@ inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 
     if (latex.trimmed().isEmpty()) {
         QFont f = detail::makeFont (16, detail::FontKind::Italic);
         painter.setFont (f);
-        painter.setPen (QColor (150, 150, 150));
+        QColor placeholder = inkColor;
+        placeholder.setAlphaF (0.5);
+        painter.setPen (placeholder);
         painter.drawText (QRectF (0, 0, w, h), Qt::AlignCenter, "(ecuación vacía)");
     } else {
         const detail::Layout L = detail::layout (latex, w, equationNumber);
@@ -1032,7 +1049,9 @@ inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 
         QFont numFont ("Segoe UI");
         numFont.setPixelSize (15);
         painter.setFont (numFont);
-        painter.setPen (QColor (100, 100, 100));
+        QColor numberColor = inkColor;
+        numberColor.setAlphaF (0.6);
+        painter.setPen (numberColor);
         const QString numStr = QString ("(%1)").arg (equationNumber);
         const QFontMetricsF fm (numFont);
         painter.drawText (QPointF (w - fm.horizontalAdvance (numStr) - 16, (h + fm.ascent() - fm.descent()) / 2.0), numStr);

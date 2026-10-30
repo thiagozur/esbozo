@@ -161,13 +161,24 @@ inline QVector<double> columnWidths (const QVector<QStringList>& data, bool hasH
 
 }
 
+struct Colors {
+    QColor cell { Qt::white };
+    QColor header { 240, 243, 246 };
+    QColor grid { 210, 210, 210 };
+    QColor headerRule { 210, 210, 210 };
+    QColor headerText { 20, 20, 20 };
+    QColor bodyText { 50, 50, 50 };
+    QColor title { 34, 34, 34 };
+    QColor empty { 150, 150, 150 };
+};
+
 inline int preferredHeight (const QVector<QStringList>& data, const QString& title = QString()) {
     if (data.isEmpty()) return 50;
     const double titleH = title.isEmpty() ? 0.0 : detail::kTitleH;
     return static_cast<int> (std::ceil (data.size() * detail::kRowH + titleH)) + 4;
 }
 
-inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool hasRowNames, const QString& title, int width, int height, qreal dpr = 1.0)
+inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool hasRowNames, const QString& title, int width, int height, qreal dpr = 1.0, const Colors& colors = Colors())
 {
     using namespace detail;
 
@@ -187,7 +198,7 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
         f.setPixelSize (14);
         f.setItalic (true);
         p.setFont (f);
-        p.setPen (QColor (150, 150, 150));
+        p.setPen (colors.empty);
         p.drawText (QRectF (0, 0, w, h), Qt::AlignCenter, "(tabla vacía o sin datos)");
         p.end();
         return QPixmap::fromImage (img);
@@ -207,7 +218,7 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
         tf.setPixelSize (15);
         tf.setBold (true);
         p.setFont (tf);
-        p.setPen (QColor (34, 34, 34));
+        p.setPen (colors.title);
         const QString shown = QFontMetricsF (tf).elidedText (title, Qt::ElideRight, w - 8.0);
         p.drawText (QRectF (0, y0, w, kTitleH - 4), Qt::AlignCenter, shown);
         y0 += kTitleH;
@@ -217,12 +228,12 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
         double x = x0;
         for (int c = 0; c < ncols; ++c) {
             const QRectF cell (x, y0 + r * kRowH, colW[c], kRowH);
-            p.fillRect (cell, (hasHeaderRow && r == 0) ? QColor (240, 243, 246) : QColor (Qt::white));
+            p.fillRect (cell, (hasHeaderRow && r == 0) ? colors.header : colors.cell);
             x += colW[c];
         }
     }
 
-    p.setPen (QPen (QColor (210, 210, 210), 1));
+    p.setPen (QPen (colors.grid, 1));
     const double tableH = nrows * kRowH;
     for (int r = 0; r <= nrows; ++r) {
         const double y = y0 + r * kRowH;
@@ -235,6 +246,10 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
         if (c < ncols) gx += colW[c];
     }
 
+    if (hasHeaderRow && nrows > 1 && colors.headerRule != colors.grid) {
+        p.setPen (QPen (colors.headerRule, 1));
+        p.drawLine (QPointF (x0, y0 + kRowH), QPointF (x0 + tableW, y0 + kRowH));
+    }
     for (int r = 0; r < nrows; ++r) {
         double x = x0;
         for (int c = 0; c < ncols; ++c) {
@@ -243,7 +258,7 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
                 const QFont f = cellFont (kind);
                 const QString text = data[r][c];
                 p.setFont (f);
-                p.setPen (kind == Header ? QColor (20, 20, 20) : QColor (50, 50, 50));
+                p.setPen (kind == Header ? colors.headerText : colors.bodyText);
 
                 Qt::Alignment align = Qt::AlignLeft;
                 if (kind != Normal) align = Qt::AlignHCenter;

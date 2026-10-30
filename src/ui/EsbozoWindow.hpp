@@ -46,6 +46,7 @@ private:
     void saveProject();
     void openProject();
     void updateWindowTitle();
+    void cycleTheme();
     void startExportWizard();
     void exportToMarkdown();
     void exportToPdf();

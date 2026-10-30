@@ -12,6 +12,17 @@
 
 namespace GraphRenderer {
 
+struct Colors {
+    QColor title { "#222222" };
+    QColor label { "#222222" };
+    QColor tick { "#555555" };
+    QColor grid { "#EEEEEE" };
+    QColor frame { "#AAAAAA" };
+    QColor empty { "#888888" };
+    QColor background { Qt::white };
+    QColor markerRing { Qt::white };
+};
+
 inline QColor seriesColor (int i) {
     static const char* colors[] = { "#4682B4", "#E67E22", "#2E9E5B", "#C0392B", "#8E44AD", "#16A5A5", "#B8A100", "#7F8C8D" };
     return QColor (colors[i % 8]);
@@ -66,10 +77,10 @@ inline Axis makeAxis (const QVector<double>& vals, bool log) {
     return a;
 }
 
-inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1.0) {
+inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1.0, const Colors& colors = Colors()) {
     QPixmap pm (QSize (width, height) * dpr);
     pm.setDevicePixelRatio (dpr);
-    pm.fill (Qt::white);
+    pm.fill (colors.background);
 
     QPainter p (&pm);
     p.setRenderHints (QPainter::Antialiasing | QPainter::TextAntialiasing);
@@ -124,29 +135,29 @@ inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1
 
     if (!g.getDescription().isEmpty()) {
         p.setFont (titleFont);
-        p.setPen (QColor ("#222222"));
+        p.setPen (colors.title);
         p.drawText (QRectF (margin, margin, width - 2 * margin, hfm.height()), Qt::AlignCenter, hfm.elidedText (g.getDescription(), Qt::ElideRight, width - 2 * margin));
     }
 
     p.setFont (tickFont);
     for (double t : ax.ticks) {
         double x = plot.left() + ax.fracT (t) * plot.width();
-        p.setPen (QPen (QColor ("#EEEEEE"), 1));
+        p.setPen (QPen (colors.grid, 1));
         p.drawLine (QPointF (x, plot.top()), QPointF (x, plot.bottom()));
-        p.setPen (QColor ("#555555"));
+        p.setPen (colors.tick);
         p.drawLine (QPointF (x, plot.bottom()), QPointF (x, plot.bottom() + 4));
         p.drawText (QRectF (x - 30, plot.bottom() + 5, 60, tfm.height()), Qt::AlignHCenter | Qt::AlignTop, ax.label (t));
     }
     for (double t : ay.ticks) {
         double y = plot.bottom() - ay.fracT (t) * plot.height();
-        p.setPen (QPen (QColor ("#EEEEEE"), 1));
+        p.setPen (QPen (colors.grid, 1));
         p.drawLine (QPointF (plot.left(), y), QPointF (plot.right(), y));
-        p.setPen (QColor ("#555555"));
+        p.setPen (colors.tick);
         p.drawLine (QPointF (plot.left() - 4, y), QPointF (plot.left(), y));
         p.drawText (QRectF (plot.left() - yTickW - 8, y - tfm.height() / 2.0, yTickW + 3, tfm.height()), Qt::AlignRight | Qt::AlignVCenter, ay.label (t));
     }
 
-    p.setPen (QPen (QColor ("#AAAAAA"), 1));
+    p.setPen (QPen (colors.frame, 1));
     p.setBrush (Qt::NoBrush);
     p.drawRect (plot);
 
@@ -175,7 +186,7 @@ inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1
         if (!pts.isEmpty()) anyData = true;
 
         p.setBrush (color);
-        p.setPen (QPen (Qt::white, 1));
+        p.setPen (colors.markerRing.alpha() == 0 ? QPen (Qt::NoPen) : QPen (colors.markerRing, 1));
         const double r = isLine ? 2.5 : 3.5;
         if (!isLine || pts.size() <= 40) {
             for (const QPointF& pt : pts) p.drawEllipse (pt, r, r);
@@ -185,12 +196,12 @@ inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1
 
     if (!anyData) {
         p.setFont (labelFont);
-        p.setPen (QColor ("#888888"));
+        p.setPen (colors.empty);
         p.drawText (plot, Qt::AlignCenter, "Sin datos para graficar");
     }
 
     p.setFont (labelFont);
-    p.setPen (QColor ("#222222"));
+    p.setPen (colors.label);
     if (hasXLabel)
         p.drawText (QRectF (plot.left(), plot.bottom() + 5 + tfm.height() + 4, plot.width(), lfm.height()), Qt::AlignCenter, g.getSeriesX().name);
     if (yLabelOnSide) {
@@ -211,7 +222,7 @@ inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1
             if (isLine) p.drawLine (QPointF (o.x(), midY), QPointF (o.x() + 16, midY));
             p.drawEllipse (QPointF (o.x() + 8, midY), 3.5, 3.5);
 
-            p.setPen (QColor ("#222222"));
+            p.setPen (colors.label);
             p.drawText (QRectF (o.x() + 22, o.y(), lfm.horizontalAdvance (ys[s].name) + 4, lfm.height()), Qt::AlignLeft | Qt::AlignVCenter, ys[s].name);
         }
     }

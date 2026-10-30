@@ -1,9 +1,56 @@
 #include "ui/BlockWidgets.hpp"
 
+#include <QPainter>
+#include <QPainterPath>
+
 #include "core/EquationRenderer.hpp"
 #include "core/GraphRenderer.hpp"
 #include "core/TableRenderer.hpp"
 #include "ui/Theme.hpp"
+
+namespace {
+
+GraphRenderer::Colors graphColors() {
+    const Theme::Colors& c = Theme::colors();
+    GraphRenderer::Colors g;
+    g.title = c.text;
+    g.label = c.text;
+    g.tick = Theme::withAlpha (c.text, 0.85);
+    g.frame = Theme::withAlpha (c.text, 0.60);
+    g.grid = Theme::withAlpha (c.text, 0.10);
+    g.empty = Theme::withAlpha (c.text, 0.50);
+    g.background = Qt::transparent;
+    g.markerRing = Qt::transparent;
+    return g;
+}
+
+TableRenderer::Colors tableColors() {
+    const Theme::Colors& c = Theme::colors();
+    TableRenderer::Colors t;
+    t.cell = Qt::transparent;
+    t.header = Qt::transparent;
+    t.grid = Theme::withAlpha (c.text, 0.25);
+    t.headerRule = Theme::withAlpha (c.text, 0.55);
+    t.headerText = c.text;
+    t.bodyText = Theme::withAlpha (c.text, 0.90);
+    t.title = c.text;
+    t.empty = Theme::withAlpha (c.text, 0.50);
+    return t;
+}
+
+QPixmap roundedCorners (const QPixmap& source, int radius) {
+    QPixmap out (source.size());
+    out.fill (Qt::transparent);
+    QPainter painter (&out);
+    painter.setRenderHint (QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addRoundedRect (QRectF (QPointF (0, 0), QSizeF (source.size())), radius, radius);
+    painter.setClipPath (path);
+    painter.drawPixmap (0, 0, source);
+    return out;
+}
+
+}
 
 ClickableLabel::ClickableLabel (const QString& text, QWidget* parent)
     : QLabel (text, parent)
@@ -41,7 +88,7 @@ void ImageLabel::setBoxWidth (int boxWidth) {
         return;
     m_lastWidth = pixWidth;
 
-    QPixmap scaled = m_original.scaledToWidth (pixWidth, Qt::SmoothTransformation);
+    QPixmap scaled = roundedCorners (m_original.scaledToWidth (pixWidth, Qt::SmoothTransformation), Theme::metrics().imageRadius);
     setPixmap (scaled);
     setFixedSize (scaled.width() + chrome, scaled.height() + chrome);
 }
@@ -63,7 +110,7 @@ void GraphLabel::setBoxWidth (int boxWidth) {
     m_lastDpr = dpr;
 
     int pixHeight = pixWidth * 13 / 20;
-    setPixmap (GraphRenderer::render (*m_graph, pixWidth, pixHeight, dpr));
+    setPixmap (GraphRenderer::render (*m_graph, pixWidth, pixHeight, dpr, graphColors()));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
@@ -84,7 +131,7 @@ void EquationLabel::setBoxWidth (int boxWidth) {
     m_lastDpr = dpr;
 
     int pixHeight = EquationRenderer::preferredHeight (m_latex, pixWidth, m_equationNumber);
-    setPixmap (EquationRenderer::render (m_latex, pixWidth, pixHeight, dpr, m_equationNumber));
+    setPixmap (EquationRenderer::render (m_latex, pixWidth, pixHeight, dpr, m_equationNumber, Theme::colors().text));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
@@ -105,6 +152,6 @@ void TableLabel::setBoxWidth (int boxWidth) {
     m_lastDpr = dpr;
 
     int pixHeight = TableRenderer::preferredHeight (m_data, m_title);
-    setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr));
+    setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr, tableColors()));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }

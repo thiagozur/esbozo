@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QShortcut>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
@@ -55,6 +56,8 @@ EsbozoWindow::EsbozoWindow()
     mainLayout->addWidget (m_statusLabel);
 
     setCentralWidget (centralWidget);
+
+    new QShortcut (QKeySequence (Qt::CTRL | Qt::SHIFT | Qt::Key_T), this, [this]() { cycleTheme(); });
 
     refreshUI();
 }
@@ -260,6 +263,17 @@ bool EsbozoWindow::loadProject (const QString& path) {
     m_statusLabel->setText ("Proyecto cargado exitosamente desde: " + path);
     refreshUI();
     return true;
+}
+
+void EsbozoWindow::cycleTheme() {
+    if (navigationLocked())
+        return;
+    saveCurrentContent();
+    Theme::cycleVariant();
+    Theme::applyTo (*qApp);
+    m_statusLabel->setStyleSheet (Theme::statusStyle());
+    refreshUI();
+    m_statusLabel->setText ("Tema: " + Theme::colors().name);
 }
 
 void EsbozoWindow::updateWindowTitle() {
