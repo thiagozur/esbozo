@@ -11,18 +11,12 @@
 
 namespace Theme {
 
-enum class Variant {
-    Deep,
-    Wine
-};
-
 struct Colors {
-    QString name;
-    QColor background;
-    QColor surface;
-    QColor text;
-    QColor accent;
-    QColor aqua;
+    QColor background { "#0E0008" };
+    QColor surface { "#1A000F" };
+    QColor text { "#CEC3C1" };
+    QColor accent { "#DE3C4B" };
+    QColor aqua { "#87F5FB" };
 };
 
 struct Alphas {
@@ -30,7 +24,7 @@ struct Alphas {
     double subtitle = 0.65;
     double body = 0.55;
     double muted = 0.45;
-    double frame = 0.22;
+    double frame = 0.24;
     double wizardFrame = 0.70;
     double wizardPlaceholder = 0.80;
     double selection = 0.45;
@@ -44,14 +38,25 @@ struct Fonts {
     QString mono = "Consolas";
 };
 
+struct Sizes {
+    double title = 15.0;
+    double subtitle = 13.0;
+    double body = 11.0;
+    double mono = 10.0;
+    double focusScale = 1.3;
+};
+
 struct Metrics {
     int windowWidth = 800;
     int windowHeight = 600;
     int blockSpacing = 16;
     int sideMargin = 20;
+    int pageMargin = 96;
     int cardPadding = 8;
     int cardBorderWidth = 0;
     int imageRadius = 8;
+    int editBorderWidth = 2;
+    int caretWidth = 2;
     int cardChrome() const { return 2 * (cardPadding + cardBorderWidth); }
 };
 
@@ -62,11 +67,7 @@ inline QColor withAlpha (const QColor& c, double alpha) {
 }
 
 inline QColor mix (const QColor& over, const QColor& under, double amount) {
-    return QColor::fromRgbF (
-        over.redF() * amount + under.redF() * (1.0 - amount),
-        over.greenF() * amount + under.greenF() * (1.0 - amount),
-        over.blueF() * amount + under.blueF() * (1.0 - amount)
-    );
+    return QColor::fromRgbF (over.redF() * amount + under.redF() * (1.0 - amount), over.greenF() * amount + under.greenF() * (1.0 - amount), over.blueF() * amount + under.blueF() * (1.0 - amount));
 }
 
 inline QString css (const QColor& c, double alpha = 1.0) {
@@ -77,43 +78,19 @@ inline QString css (const QColor& c, double alpha = 1.0) {
         .arg (alpha, 0, 'f', 2);
 }
 
-inline Colors makeColors (Variant variant) {
-    Colors c;
-    c.text = QColor ("#CEC3C1");
-    c.accent = QColor ("#DE3C4B");
-    c.aqua = QColor ("#87F5FB");
-    if (variant == Variant::Deep) {
-        c.name = "Deep";
-        c.background = QColor ("#14000B");
-        c.surface = QColor ("#240115");
-    } else {
-        c.name = "Wine";
-        c.background = QColor ("#240115");
-        c.surface = QColor ("#2F131E");
-    }
+inline const Colors& colors() {
+    static const Colors c;
     return c;
 }
-
-inline Variant& variantSlot() {
-    static Variant v = Variant::Deep;
-    return v;
-}
-
-inline Colors& colorsSlot() {
-    static Colors c = makeColors (Variant::Deep);
-    return c;
-}
-
-inline const Colors& colors() { return colorsSlot(); }
 
 inline const Alphas& alphas() {
     static const Alphas a;
     return a;
 }
 
-inline const Fonts& fonts() {
-    static const Fonts f;
-    return f;
+inline const Sizes& sizes() {
+    static const Sizes s;
+    return s;
 }
 
 inline const Metrics& metrics() {
@@ -121,43 +98,53 @@ inline const Metrics& metrics() {
     return m;
 }
 
-inline void setVariant (Variant variant) {
-    variantSlot() = variant;
-    colorsSlot() = makeColors (variant);
+inline Fonts& fontsSlot() {
+    static Fonts f;
+    return f;
 }
 
-inline void cycleVariant() {
-    setVariant (variantSlot() == Variant::Deep ? Variant::Wine : Variant::Deep);
+inline const Fonts& fonts() { return fontsSlot(); }
+
+inline void setFontFamilies (const QString& family, const QString& mono = QString()) {
+    fontsSlot().family = family;
+    if (!mono.isEmpty())
+        fontsSlot().mono = mono;
 }
 
-inline QFont editorFont (BlockType type) {
-    const Fonts& f = fonts();
-    switch (type) {
-        case BlockType::Title:
-            return QFont (f.family, 16);
-        case BlockType::Subtitle:
-            return QFont (f.family, 14);
-        case BlockType::Image: {
-            QFont font (f.family, 11);
-            font.setItalic (true);
-            return font;
-        }
-        case BlockType::Equation:
-            return QFont (f.mono, 12);
-        default:
-            return QFont (f.family, 13);
-    }
+inline QFont makeFont (const QString& family, double pointSize, bool italic = false) {
+    QFont font (family);
+    font.setPointSizeF (pointSize);
+    font.setItalic (italic);
+    return font;
 }
 
 inline QFont labelFont (BlockType type) {
     const Fonts& f = fonts();
+    const Sizes& s = sizes();
     switch (type) {
         case BlockType::Title:
-            return QFont (f.family, 15);
+            return makeFont (f.family, s.title);
         case BlockType::Subtitle:
-            return QFont (f.family, 13);
+            return makeFont (f.family, s.subtitle);
         default:
-            return QFont (f.family, 11, QFont::Normal);
+            return makeFont (f.family, s.body);
+    }
+}
+
+inline QFont editorFont (BlockType type) {
+    const Fonts& f = fonts();
+    const Sizes& s = sizes();
+    switch (type) {
+        case BlockType::Title:
+            return makeFont (f.family, s.title * s.focusScale);
+        case BlockType::Subtitle:
+            return makeFont (f.family, s.subtitle * s.focusScale);
+        case BlockType::Image:
+            return makeFont (f.family, s.body * s.focusScale, true);
+        case BlockType::Equation:
+            return makeFont (f.mono, s.mono * s.focusScale);
+        default:
+            return makeFont (f.family, s.body * s.focusScale);
     }
 }
 
@@ -191,22 +178,24 @@ inline QString statusStyle() {
 inline QString editorStyle() {
     const Colors& c = colors();
     const Alphas& a = alphas();
-    return QString ("QTextEdit { background: transparent; color: %1; border: 1px solid %2; padding: 6px; border-radius: 2px;"
+    return QString ("QTextEdit { background: transparent; color: %1; border: %4px solid %2; padding: 6px; border-radius: 2px;"
                     " selection-background-color: %3; selection-color: %1; }")
         .arg (css (c.text))
         .arg (css (c.text, a.frame))
-        .arg (css (c.accent, a.selection));
+        .arg (css (c.accent, a.selection))
+        .arg (metrics().editBorderWidth);
 }
 
 inline QString wizardStyle() {
     const Colors& c = colors();
     const Alphas& a = alphas();
-    return QString ("QTextEdit { background: transparent; color: %1; border: 1px solid %2; padding: 6px; border-radius: 2px;"
+    return QString ("QTextEdit { background: transparent; color: %1; border: %5px solid %2; padding: 6px; border-radius: 2px;"
                     " selection-background-color: %3; selection-color: %1; placeholder-text-color: %4; }")
         .arg (css (c.text))
         .arg (css (c.aqua, a.wizardFrame))
         .arg (css (c.accent, a.selection))
-        .arg (css (c.aqua, a.wizardPlaceholder));
+        .arg (css (c.aqua, a.wizardPlaceholder))
+        .arg (metrics().editBorderWidth);
 }
 
 inline QString dialogStyle() {

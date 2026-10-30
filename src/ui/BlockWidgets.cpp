@@ -1,5 +1,6 @@
 #include "ui/BlockWidgets.hpp"
 
+#include <QApplication>
 #include <QPainter>
 #include <QPainterPath>
 
@@ -154,4 +155,56 @@ void TableLabel::setBoxWidth (int boxWidth) {
     int pixHeight = TableRenderer::preferredHeight (m_data, m_title);
     setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr, tableColors()));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
+}
+
+BlockEditor::BlockEditor (QWidget* parent)
+    : QTextEdit (parent), m_caretColor (Theme::colors().accent)
+{
+    setCursorWidth (0);
+
+    const int flash = QApplication::cursorFlashTime();
+    if (flash > 0) {
+        m_blinkTimer.setInterval (flash / 2);
+        connect (&m_blinkTimer, &QTimer::timeout, this, [this]() {
+            m_caretVisible = !m_caretVisible;
+            viewport()->update();
+        });
+    }
+
+    connect (this, &QTextEdit::cursorPositionChanged, this, &BlockEditor::restartBlink);
+    connect (this, &QTextEdit::textChanged, this, &BlockEditor::restartBlink);
+}
+
+void BlockEditor::setCaretColor (const QColor& color) {
+    m_caretColor = color;
+    viewport()->update();
+}
+
+void BlockEditor::restartBlink() {
+    m_caretVisible = true;
+    if (m_blinkTimer.interval() > 0 && hasFocus())
+        m_blinkTimer.start();
+    viewport()->update();
+}
+
+void BlockEditor::focusInEvent (QFocusEvent* event) {
+    QTextEdit::focusInEvent (event);
+    restartBlink();
+}
+
+void BlockEditor::focusOutEvent (QFocusEvent* event) {
+    QTextEdit::focusOutEvent (event);
+    m_blinkTimer.stop();
+    viewport()->update();
+}
+
+void BlockEditor::paintEvent (QPaintEvent* event) {
+    QTextEdit::paintEvent (event);
+
+    if (!hasFocus() || !m_caretVisible || isReadOnly() || textCursor().hasSelection())
+        return;
+
+    QPainter painter (viewport());
+    const QRect r = cursorRect();
+    painter.fillRect (QRect (r.left(), r.top(), Theme::metrics().caretWidth, r.height()), m_caretColor);
 }

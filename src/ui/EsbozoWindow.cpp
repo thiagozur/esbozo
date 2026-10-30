@@ -8,10 +8,8 @@
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QShortcut>
 #include <QTextCharFormat>
 #include <QTextCursor>
-#include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <memory>
@@ -56,8 +54,6 @@ EsbozoWindow::EsbozoWindow()
     mainLayout->addWidget (m_statusLabel);
 
     setCentralWidget (centralWidget);
-
-    new QShortcut (QKeySequence (Qt::CTRL | Qt::SHIFT | Qt::Key_T), this, [this]() { cycleTheme(); });
 
     refreshUI();
 }
@@ -178,6 +174,7 @@ void EsbozoWindow::setPrompt (const QString& text) {
     m_activeTextEdit->clear();
     m_activeTextEdit->setPlaceholderText (text);
     m_activeTextEdit->setStyleSheet (Theme::wizardStyle());
+    m_activeTextEdit->setCaretColor (Theme::colors().aqua);
 }
 
 void EsbozoWindow::clearInput() {
@@ -263,17 +260,6 @@ bool EsbozoWindow::loadProject (const QString& path) {
     m_statusLabel->setText ("Proyecto cargado exitosamente desde: " + path);
     refreshUI();
     return true;
-}
-
-void EsbozoWindow::cycleTheme() {
-    if (navigationLocked())
-        return;
-    saveCurrentContent();
-    Theme::cycleVariant();
-    Theme::applyTo (*qApp);
-    m_statusLabel->setStyleSheet (Theme::statusStyle());
-    refreshUI();
-    m_statusLabel->setText ("Tema: " + Theme::colors().name);
 }
 
 void EsbozoWindow::updateWindowTitle() {
@@ -457,9 +443,13 @@ void EsbozoWindow::updateStatus() {
     m_statusLabel->setText (s);
 }
 
+int EsbozoWindow::sideMargin() const {
+    const Theme::Metrics& m = Theme::metrics();
+    return qMax (m.sideMargin, qMin (m.pageMargin, width() / 8));
+}
+
 void EsbozoWindow::updateImageWidths() {
-    const int sideMargin = Theme::metrics().sideMargin;
-    int available = m_scrollArea->width() - 2 * m_scrollArea->frameWidth() - 2 * sideMargin;
+    int available = m_scrollArea->width() - 2 * m_scrollArea->frameWidth() - 2 * sideMargin();
     int imageBoxWidth = qMax (100, available / 2);
     int wideBoxWidth = qMax (100, available * 3 / 4);
 
@@ -485,8 +475,8 @@ void EsbozoWindow::centerActiveBlock() {
     if (viewportHeight <= 0 || count == 0 || m_activeBlockIndex >= static_cast<size_t> (count))
         return;
 
-    const int sideMargin = Theme::metrics().sideMargin;
-    int contentWidth = m_scrollArea->viewport()->width() - 2 * sideMargin;
+    const int margin = sideMargin();
+    int contentWidth = m_scrollArea->viewport()->width() - 2 * margin;
     int spacing = m_documentLayout->spacing();
 
     int hAbove = 0;
@@ -506,7 +496,7 @@ void EsbozoWindow::centerActiveBlock() {
     int topMargin = qMax (0, idealY - hAbove);
     int bottomMargin = qMax (0, (viewportHeight / 2) - (hActive / 2));
 
-    m_documentLayout->setContentsMargins (sideMargin, topMargin, sideMargin, bottomMargin);
+    m_documentLayout->setContentsMargins (margin, topMargin, margin, bottomMargin);
 
     int scroll = (topMargin == 0) ? (hAbove - idealY) : 0;
     m_scrollArea->verticalScrollBar()->setValue (scroll);
@@ -545,7 +535,8 @@ void EsbozoWindow::refreshUI() {
 void EsbozoWindow::addEditor (Block* block) {
     const BlockType type = block->getType();
 
-    QTextEdit* editBox = new QTextEdit (m_containerWidget);
+    BlockEditor* editBox = new BlockEditor (m_containerWidget);
+    editBox->setCaretColor (Theme::colors().accent);
     editBox->setAcceptRichText (false);
 
     if (InlineMarkup::isRichType (type))

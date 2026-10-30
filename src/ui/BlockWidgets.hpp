@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QColor>
 #include <QLabel>
 #include <QPixmap>
 #include <QString>
 #include <QStringList>
+#include <QTextEdit>
+#include <QTimer>
 #include <QVector>
 #include <memory>
 
@@ -75,4 +78,24 @@ private:
     bool m_hasRowNames;
     int m_lastWidth = -1;
     qreal m_lastDpr = 0.0;
+};
+
+class BlockEditor : public QTextEdit {
+    Q_OBJECT
+
+public:
+    explicit BlockEditor (QWidget* parent = nullptr);
+    void setCaretColor (const QColor& color);
+
+protected:
+    void paintEvent (QPaintEvent* event) override;
+    void focusInEvent (QFocusEvent* event) override;
+    void focusOutEvent (QFocusEvent* event) override;
+
+private:
+    void restartBlink();
+
+    QColor m_caretColor;
+    bool m_caretVisible = true;
+    QTimer m_blinkTimer;
 };

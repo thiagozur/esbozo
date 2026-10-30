@@ -7,12 +7,12 @@
 #include "core/Document.hpp"
 #include "ui/Wizard.hpp"
 
+class BlockEditor;
 class QEvent;
 class QKeyEvent;
 class QLabel;
 class QResizeEvent;
 class QScrollArea;
-class QTextEdit;
 class QVBoxLayout;
 class QWidget;
 
@@ -46,7 +46,6 @@ private:
     void saveProject();
     void openProject();
     void updateWindowTitle();
-    void cycleTheme();
     void startExportWizard();
     void exportToMarkdown();
     void exportToPdf();
@@ -64,6 +63,7 @@ private:
     QString inputForProcessor();
     void updateStatus();
 
+    int sideMargin() const;
     void updateImageWidths();
     void centerActiveBlock();
     void refreshUI();
@@ -80,5 +80,5 @@ private:
     QVBoxLayout* m_documentLayout = nullptr;
     QScrollArea* m_scrollArea = nullptr;
     QLabel* m_statusLabel = nullptr;
-    QTextEdit* m_activeTextEdit = nullptr;
+    BlockEditor* m_activeTextEdit = nullptr;
 };
