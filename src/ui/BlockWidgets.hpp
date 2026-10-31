@@ -10,6 +10,7 @@
 #include <QVector>
 #include <memory>
 
+#include "core/Block.hpp"
 #include "core/GraphBlock.hpp"
 
 class ClickableLabel : public QLabel {
@@ -80,22 +81,31 @@ private:
     qreal m_lastDpr = 0.0;
 };
 
+QString commandLabelFor (BlockType type);
+
+class FrameOverlay;
+
 class BlockEditor : public QTextEdit {
     Q_OBJECT
 
 public:
     explicit BlockEditor (QWidget* parent = nullptr);
-    void setCaretColor (const QColor& color);
+    void setLabelText (const QString& text);
+    void setWizardMode (bool wizard);
 
 protected:
     void paintEvent (QPaintEvent* event) override;
+    void resizeEvent (QResizeEvent* event) override;
     void focusInEvent (QFocusEvent* event) override;
     void focusOutEvent (QFocusEvent* event) override;
 
 private:
     void restartBlink();
+    void applyColors();
 
     QColor m_caretColor;
+    bool m_wizard = false;
     bool m_caretVisible = true;
     QTimer m_blinkTimer;
+    FrameOverlay* m_frame = nullptr;
 };

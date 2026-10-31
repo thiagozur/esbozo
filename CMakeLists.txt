@@ -14,6 +14,7 @@ set(CMAKE_AUTOUIC ON)
 
 set(SOURCES
     src/main.cpp
+    resources/resources.qrc
     src/ui/BlockWidgets.cpp
     src/ui/Dialogs.cpp
     src/ui/EsbozoWindow.cpp

@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file>fonts/TitilliumWeb-Regular.ttf</file>
+        <file>fonts/TitilliumWeb-Italic.ttf</file>
+        <file>fonts/TitilliumWeb-Bold.ttf</file>
+        <file>fonts/TitilliumWeb-BoldItalic.ttf</file>
+        <file>fonts/ChakraPetch-Regular.ttf</file>
+    </qresource>
+</RCC>

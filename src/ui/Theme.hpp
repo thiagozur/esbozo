@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QFont>
+#include <QFontDatabase>
 #include <QPalette>
 #include <QString>
 #include <QStyleFactory>
@@ -24,6 +25,8 @@ struct Alphas {
     double subtitle = 0.65;
     double body = 0.55;
     double muted = 0.45;
+    double legend = 0.55;
+    double wizardLegend = 0.90;
     double frame = 0.24;
     double wizardFrame = 0.70;
     double wizardPlaceholder = 0.80;
@@ -36,13 +39,15 @@ struct Alphas {
 struct Fonts {
     QString family = "Segoe UI";
     QString mono = "Consolas";
+    QString label = "Segoe UI";
 };
 
 struct Sizes {
-    double title = 15.0;
-    double subtitle = 13.0;
-    double body = 11.0;
+    double title = 16.0;
+    double subtitle = 14.0;
+    double body = 12.0;
     double mono = 10.0;
+    double label = 8.5;
     double focusScale = 1.3;
 };
 
@@ -51,7 +56,9 @@ struct Metrics {
     int windowHeight = 600;
     int blockSpacing = 16;
     int sideMargin = 20;
-    int pageMargin = 96;
+    double pageMarginInches = 2.0;
+    int maxContentWidth = 1300;
+    int legendZone = 8;
     int cardPadding = 8;
     int cardBorderWidth = 0;
     int imageRadius = 8;
@@ -67,7 +74,9 @@ inline QColor withAlpha (const QColor& c, double alpha) {
 }
 
 inline QColor mix (const QColor& over, const QColor& under, double amount) {
-    return QColor::fromRgbF (over.redF() * amount + under.redF() * (1.0 - amount), over.greenF() * amount + under.greenF() * (1.0 - amount), over.blueF() * amount + under.blueF() * (1.0 - amount));
+    return QColor::fromRgbF (over.redF() * amount + under.redF() * (1.0 - amount),
+                             over.greenF() * amount + under.greenF() * (1.0 - amount),
+                             over.blueF() * amount + under.blueF() * (1.0 - amount));
 }
 
 inline QString css (const QColor& c, double alpha = 1.0) {
@@ -115,6 +124,12 @@ inline QFont makeFont (const QString& family, double pointSize, bool italic = fa
     QFont font (family);
     font.setPointSizeF (pointSize);
     font.setItalic (italic);
+    return font;
+}
+
+inline QFont labelSmallFont() {
+    QFont font = makeFont (fonts().label, sizes().label);
+    font.setLetterSpacing (QFont::AbsoluteSpacing, 0.8);
     return font;
 }
 
@@ -172,30 +187,28 @@ inline QString errorLabelStyle() {
 }
 
 inline QString statusStyle() {
-    return QString ("color: %1; font-style: italic;").arg (css (colors().text, alphas().muted));
+    return QString ("color: %1;").arg (css (colors().text, alphas().muted));
 }
 
 inline QString editorStyle() {
     const Colors& c = colors();
     const Alphas& a = alphas();
-    return QString ("QTextEdit { background: transparent; color: %1; border: %4px solid %2; padding: 6px; border-radius: 2px;"
+    return QString ("QTextEdit { background: transparent; color: %1; border: none; padding: %2px;"
                     " selection-background-color: %3; selection-color: %1; }")
         .arg (css (c.text))
-        .arg (css (c.text, a.frame))
-        .arg (css (c.accent, a.selection))
-        .arg (metrics().editBorderWidth);
+        .arg (metrics().editBorderWidth + 6)
+        .arg (css (c.accent, a.selection));
 }
 
 inline QString wizardStyle() {
     const Colors& c = colors();
     const Alphas& a = alphas();
-    return QString ("QTextEdit { background: transparent; color: %1; border: %5px solid %2; padding: 6px; border-radius: 2px;"
+    return QString ("QTextEdit { background: transparent; color: %1; border: none; padding: %2px;"
                     " selection-background-color: %3; selection-color: %1; placeholder-text-color: %4; }")
         .arg (css (c.text))
-        .arg (css (c.aqua, a.wizardFrame))
+        .arg (metrics().editBorderWidth + 6)
         .arg (css (c.accent, a.selection))
-        .arg (css (c.aqua, a.wizardPlaceholder))
-        .arg (metrics().editBorderWidth);
+        .arg (css (c.aqua, a.wizardPlaceholder));
 }
 
 inline QString dialogStyle() {
@@ -260,7 +273,35 @@ inline QPalette makePalette() {
     return p;
 }
 
+inline void loadBundledFonts() {
+    static bool loaded = false;
+    if (loaded)
+        return;
+    loaded = true;
+
+    const char* files[] = {
+        "TitilliumWeb-Regular.ttf", "TitilliumWeb-Italic.ttf", "TitilliumWeb-Bold.ttf", "TitilliumWeb-BoldItalic.ttf",
+        "ChakraPetch-Regular.ttf"
+    };
+    bool textFont = false, labelFont = false;
+    for (const char* file : files) {
+        const QString name = QString::fromLatin1 (file);
+        const int id = QFontDatabase::addApplicationFont (":/fonts/" + name);
+        if (id < 0)
+            continue;
+        if (name.startsWith ("Titillium"))
+            textFont = true;
+        else if (name.startsWith ("Chakra"))
+            labelFont = true;
+    }
+    if (textFont)
+        fontsSlot().family = "Titillium Web";
+    if (labelFont)
+        fontsSlot().label = "Chakra Petch";
+}
+
 inline void applyTo (QApplication& app) {
+    loadBundledFonts();
     app.setStyle (QStyleFactory::create ("Fusion"));
     app.setPalette (makePalette());
     app.setStyleSheet (appStyle());

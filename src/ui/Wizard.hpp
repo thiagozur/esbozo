@@ -42,10 +42,16 @@ public:
         TableTitle
     };
 
+    struct Progress {
+        int step = 0;
+        int total = 0;
+    };
+
     explicit Wizard (WizardHost& host);
 
     bool active() const { return m_state != State::Idle; }
     State state() const { return m_state; }
+    Progress progress() const;
 
     void reset();
     void startExport();

@@ -9,6 +9,27 @@ Wizard::Wizard (WizardHost& host)
 {
 }
 
+Wizard::Progress Wizard::progress() const {
+    switch (m_state) {
+        case State::GraphType: return { 1, 9 };
+        case State::GraphSource: return { 2, 9 };
+        case State::GraphXName: return { 3, 9 };
+        case State::GraphXValues: return { 4, 9 };
+        case State::GraphYName: return { 5, 9 };
+        case State::GraphYValues: return { 6, 9 };
+        case State::GraphXScale: return { 7, 9 };
+        case State::GraphYScale: return { 8, 9 };
+        case State::GraphDescription: return { 9, 9 };
+        case State::TableFile: return { 1, 4 };
+        case State::TableHeader: return { 2, 4 };
+        case State::TableRowNames: return { 3, 4 };
+        case State::TableTitle: return { 4, 4 };
+        case State::ExportFormat: return { 1, 1 };
+        case State::Idle: break;
+    }
+    return {};
+}
+
 void Wizard::reset() {
     m_state = State::Idle;
 }

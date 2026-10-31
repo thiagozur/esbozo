@@ -157,10 +157,77 @@ void TableLabel::setBoxWidth (int boxWidth) {
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
+QString commandLabelFor (BlockType type) {
+    switch (type) {
+        case BlockType::Title: return "ttl;;";
+        case BlockType::Subtitle: return "sttl;;";
+        case BlockType::Paragraph: return "par;;";
+        case BlockType::Image: return "ft;;";
+        case BlockType::Graph: return "grf;;";
+        case BlockType::Equation: return "eq;;";
+        case BlockType::Table: return "tbl;;";
+    }
+    return QString();
+}
+
+class FrameOverlay : public QWidget {
+public:
+    explicit FrameOverlay (QWidget* parent)
+        : QWidget (parent)
+    {
+        setAttribute (Qt::WA_TransparentForMouseEvents);
+        setAttribute (Qt::WA_NoSystemBackground);
+    }
+
+    QColor frameColor;
+    QColor labelColor;
+    QString label;
+
+protected:
+    void paintEvent (QPaintEvent*) override {
+        const Theme::Metrics& m = Theme::metrics();
+        QPainter painter (this);
+        painter.setRenderHint (QPainter::Antialiasing, true);
+
+        const qreal w = m.editBorderWidth;
+        const QRectF box = QRectF (rect()).adjusted (w / 2.0, m.legendZone + w / 2.0, -w / 2.0, -w / 2.0);
+
+        QRectF labelRect;
+        const QFont font = Theme::labelSmallFont();
+        if (!label.isEmpty()) {
+            const QFontMetricsF fm (font);
+            const qreal textWidth = fm.horizontalAdvance (label);
+            labelRect = QRectF (box.right() - 22.0 - textWidth - 12.0, box.top() - fm.height() / 2.0, textWidth + 12.0, fm.height());
+            QPainterPath visible;
+            visible.addRect (QRectF (rect()));
+            QPainterPath hole;
+            hole.addRect (labelRect);
+            painter.setClipPath (visible.subtracted (hole));
+        }
+
+        QPen pen (frameColor, w);
+        pen.setJoinStyle (Qt::RoundJoin);
+        painter.setPen (pen);
+        painter.setBrush (Qt::NoBrush);
+        painter.drawRoundedRect (box, 2.0, 2.0);
+
+        if (!label.isEmpty()) {
+            painter.setClipping (false);
+            painter.setFont (font);
+            painter.setPen (labelColor);
+            painter.drawText (labelRect, Qt::AlignCenter, label);
+        }
+    }
+};
+
 BlockEditor::BlockEditor (QWidget* parent)
     : QTextEdit (parent), m_caretColor (Theme::colors().accent)
 {
     setCursorWidth (0);
+    setViewportMargins (0, Theme::metrics().legendZone, 0, 0);
+
+    m_frame = new FrameOverlay (this);
+    applyColors();
 
     const int flash = QApplication::cursorFlashTime();
     if (flash > 0) {
@@ -175,9 +242,30 @@ BlockEditor::BlockEditor (QWidget* parent)
     connect (this, &QTextEdit::textChanged, this, &BlockEditor::restartBlink);
 }
 
-void BlockEditor::setCaretColor (const QColor& color) {
-    m_caretColor = color;
+void BlockEditor::applyColors() {
+    const Theme::Colors& c = Theme::colors();
+    const Theme::Alphas& a = Theme::alphas();
+    m_frame->frameColor = m_wizard ? Theme::withAlpha (c.aqua, a.wizardFrame) : Theme::withAlpha (c.text, a.frame);
+    m_frame->labelColor = m_wizard ? Theme::withAlpha (c.aqua, a.wizardLegend) : Theme::withAlpha (c.text, a.legend);
+    m_frame->update();
     viewport()->update();
+}
+
+void BlockEditor::setLabelText (const QString& text) {
+    m_frame->label = text;
+    m_frame->update();
+}
+
+void BlockEditor::setWizardMode (bool wizard) {
+    m_wizard = wizard;
+    m_caretColor = wizard ? Theme::colors().aqua : Theme::colors().accent;
+    applyColors();
+}
+
+void BlockEditor::resizeEvent (QResizeEvent* event) {
+    QTextEdit::resizeEvent (event);
+    m_frame->setGeometry (rect());
+    m_frame->raise();
 }
 
 void BlockEditor::restartBlink() {

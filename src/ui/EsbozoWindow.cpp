@@ -51,6 +51,7 @@ EsbozoWindow::EsbozoWindow()
 
     m_statusLabel = new QLabel ("[Ctrl + Up / ,] subir, [Ctrl + Down / .] bajar. Enter procesa comandos.", this);
     m_statusLabel->setStyleSheet (Theme::statusStyle());
+    m_statusLabel->setFont (Theme::labelSmallFont());
     mainLayout->addWidget (m_statusLabel);
 
     setCentralWidget (centralWidget);
@@ -174,7 +175,18 @@ void EsbozoWindow::setPrompt (const QString& text) {
     m_activeTextEdit->clear();
     m_activeTextEdit->setPlaceholderText (text);
     m_activeTextEdit->setStyleSheet (Theme::wizardStyle());
-    m_activeTextEdit->setCaretColor (Theme::colors().aqua);
+    m_activeTextEdit->setWizardMode (true);
+
+    QString label;
+    if (m_wizard.state() == Wizard::State::ExportFormat) {
+        label = "exportar";
+    } else if (const Block* block = m_document.getBlock (m_activeBlockIndex)) {
+        label = commandLabelFor (block->getType());
+        const Wizard::Progress p = m_wizard.progress();
+        if (p.total > 1)
+            label += QString ("  ·  %1/%2").arg (p.step).arg (p.total);
+    }
+    m_activeTextEdit->setLabelText (label);
 }
 
 void EsbozoWindow::clearInput() {
@@ -445,7 +457,11 @@ void EsbozoWindow::updateStatus() {
 
 int EsbozoWindow::sideMargin() const {
     const Theme::Metrics& m = Theme::metrics();
-    return qMax (m.sideMargin, qMin (m.pageMargin, width() / 8));
+    const int wanted = qRound (m.pageMarginInches * logicalDpiX());
+    int margin = qMax (m.sideMargin, qMin (wanted, width() / 8));
+    if (m.maxContentWidth > 0)
+        margin = qMax (margin, (width() - m.maxContentWidth) / 2);
+    return margin;
 }
 
 void EsbozoWindow::updateImageWidths() {
@@ -536,7 +552,7 @@ void EsbozoWindow::addEditor (Block* block) {
     const BlockType type = block->getType();
 
     BlockEditor* editBox = new BlockEditor (m_containerWidget);
-    editBox->setCaretColor (Theme::colors().accent);
+    editBox->setLabelText (commandLabelFor (block->getType()));
     editBox->setAcceptRichText (false);
 
     if (InlineMarkup::isRichType (type))
@@ -558,7 +574,7 @@ void EsbozoWindow::addEditor (Block* block) {
 
     auto updateHeight = [this, editBox]() {
         int docHeight = static_cast<int> (editBox->document()->size().height());
-        int newHeight = qMax (50, docHeight + 16);
+        int newHeight = qMax (50, docHeight + 16 + Theme::metrics().legendZone);
         editBox->setMinimumHeight (newHeight);
         editBox->setMaximumHeight (newHeight);
         centerActiveBlock();
