@@ -990,18 +990,18 @@ struct Layout {
 
 constexpr double kBaseSize = 22.0;
 
-inline double numberAreaWidth (int equationNumber) {
+inline double numberAreaWidth (int equationNumber, double fontScale = 1.0) {
     if (equationNumber <= 0) return 0.0;
     QFont f ("Segoe UI");
-    f.setPixelSize (15);
+    f.setPixelSize (qRound (15 * fontScale));
     return QFontMetricsF (f).horizontalAdvance (QString ("(%1)").arg (equationNumber)) + 24.0;
 }
 
-inline Layout layout (const QString& latex, int width, int equationNumber) {
+inline Layout layout (const QString& latex, int width, int equationNumber, double fontScale = 1.0) {
     Layout L;
     Parser parser (latex);
-    L.box = parser.parseAll (kBaseSize);
-    const double avail = width - 2 * qMax (numberAreaWidth (equationNumber), 16.0);
+    L.box = parser.parseAll (kBaseSize * fontScale);
+    const double avail = width - 2 * qMax (numberAreaWidth (equationNumber, fontScale), 16.0);
     if (L.box.w > avail && L.box.w > 0)
         L.scale = qBound (0.4, avail / L.box.w, 1.0);
     return L;
@@ -1009,13 +1009,13 @@ inline Layout layout (const QString& latex, int width, int equationNumber) {
 
 }
 
-inline int preferredHeight (const QString& latex, int width, int equationNumber = 0) {
+inline int preferredHeight (const QString& latex, int width, int equationNumber = 0, double fontScale = 1.0) {
     if (latex.trimmed().isEmpty()) return 50;
-    const detail::Layout L = detail::layout (latex, qMax (100, width), equationNumber);
+    const detail::Layout L = detail::layout (latex, qMax (100, width), equationNumber, fontScale);
     return qMax (50, static_cast<int> (std::ceil (L.box.h() * L.scale)) + 28);
 }
 
-inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 1.0, int equationNumber = 0, const QColor& inkColor = QColor (17, 17, 17)) {
+inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 1.0, int equationNumber = 0, const QColor& inkColor = QColor (17, 17, 17), double fontScale = 1.0) {
     const detail::InkScope inkScope (inkColor);
     const int w = qMax (100, width);
     const int h = qMax (50, height);
@@ -1035,7 +1035,7 @@ inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 
         painter.setPen (placeholder);
         painter.drawText (QRectF (0, 0, w, h), Qt::AlignCenter, "(ecuación vacía)");
     } else {
-        const detail::Layout L = detail::layout (latex, w, equationNumber);
+        const detail::Layout L = detail::layout (latex, w, equationNumber, fontScale);
         const double bw = L.box.w * L.scale;
         const double bh = L.box.h() * L.scale;
         painter.save();
@@ -1047,7 +1047,7 @@ inline QPixmap render (const QString& latex, int width, int height, qreal dpr = 
 
     if (equationNumber > 0) {
         QFont numFont ("Segoe UI");
-        numFont.setPixelSize (15);
+        numFont.setPixelSize (qRound (15 * fontScale));
         painter.setFont (numFont);
         QColor numberColor = inkColor;
         numberColor.setAlphaF (0.6);

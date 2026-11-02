@@ -43,22 +43,23 @@ struct Fonts {
 };
 
 struct Sizes {
-    double title = 16.0;
-    double subtitle = 14.0;
-    double body = 12.0;
-    double mono = 10.0;
-    double label = 8.5;
+    double title = 20.0;
+    double subtitle = 16.0;
+    double body = 13.0;
+    double mono = 11.0;
+    double label = 10.0;
     double focusScale = 1.3;
+    double contentScale = 1.15;
 };
 
 struct Metrics {
     int windowWidth = 800;
     int windowHeight = 600;
-    int blockSpacing = 16;
+    int blockSpacing = 10;
     int sideMargin = 20;
     double pageMarginInches = 2.0;
-    int maxContentWidth = 1300;
-    int legendZone = 8;
+    int maxContentWidth = 0;
+    int legendZone = 10;
     int cardPadding = 8;
     int cardBorderWidth = 0;
     int imageRadius = 8;
@@ -198,6 +199,19 @@ inline QString editorStyle() {
         .arg (css (c.text))
         .arg (metrics().editBorderWidth + 6)
         .arg (css (c.accent, a.selection));
+}
+
+inline QString viewStyle (BlockType type, bool focused) {
+    if (focused)
+        return editorStyle();
+    const Colors& c = colors();
+    const Alphas& a = alphas();
+    const double alpha = type == BlockType::Title ? a.title
+                       : type == BlockType::Subtitle ? a.subtitle
+                       : a.body;
+    return QString ("QTextEdit { background: transparent; color: %1; border: none; padding: %2px; }")
+        .arg (css (c.text, alpha))
+        .arg (metrics().editBorderWidth + 6);
 }
 
 inline QString wizardStyle() {

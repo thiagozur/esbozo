@@ -4,10 +4,12 @@
 #include <QApplication>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHash>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTimer>
@@ -370,7 +372,7 @@ void EsbozoWindow::activateBlock (size_t index) {
 }
 
 void EsbozoWindow::saveCurrentContent() {
-    if (navigationLocked())
+    if (navigationLocked() || m_syncing)
         return;
     if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
         if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
@@ -466,20 +468,11 @@ int EsbozoWindow::sideMargin() const {
 
 void EsbozoWindow::updateImageWidths() {
     int available = m_scrollArea->width() - 2 * m_scrollArea->frameWidth() - 2 * sideMargin();
-    int imageBoxWidth = qMax (100, available / 2);
-    int wideBoxWidth = qMax (100, available * 3 / 4);
+    const int imageBox = qMax (100, available / 2);
+    const int wideBox = qMax (100, available * 3 / 4);
 
-    for (int i = 0; i < m_documentLayout->count(); ++i) {
-        QLayoutItem* item = m_documentLayout->itemAt (i);
-        if (auto* img = qobject_cast<ImageLabel*> (item->widget()))
-            img->setBoxWidth (imageBoxWidth);
-        else if (auto* gr = qobject_cast<GraphLabel*> (item->widget()))
-            gr->setBoxWidth (available * 3 / 4);
-        else if (auto* eq = qobject_cast<EquationLabel*> (item->widget()))
-            eq->setBoxWidth (available * 3 / 4);
-        else if (auto* tb = qobject_cast<TableLabel*> (item->widget()))
-            tb->setBoxWidth (wideBoxWidth);
-    }
+    for (BlockView* view : m_views)
+        view->setCardWidths (imageBox, wideBox);
 }
 
 void EsbozoWindow::centerActiveBlock() {
@@ -518,137 +511,103 @@ void EsbozoWindow::centerActiveBlock() {
     m_scrollArea->verticalScrollBar()->setValue (scroll);
 }
 
+int EsbozoWindow::indexOfView (const BlockView* view) const {
+    for (size_t i = 0; i < m_views.size(); ++i) {
+        if (m_views[i] == view)
+            return static_cast<int> (i);
+    }
+    return -1;
+}
+
+BlockView* EsbozoWindow::createView (Block* block) {
+    BlockView* view = new BlockView (block, m_containerWidget);
+    view->editor()->installEventFilter (this);
+
+    connect (view->editor(), &QTextEdit::textChanged, this, [this, view]() {
+        if (view->editor() == m_activeTextEdit)
+            saveCurrentContent();
+    });
+
+    connect (view->editor(), &QTextEdit::currentCharFormatChanged, this, [this, view] (const QTextCharFormat&) {
+        if (view->editor() == m_activeTextEdit)
+            updateStatus();
+    });
+
+    connect (view, &BlockView::activated, this, [this, view]() {
+        const int index = indexOfView (view);
+        if (index >= 0)
+            activateBlock (static_cast<size_t> (index));
+    });
+
+    connect (view, &BlockView::contentHeightChanged, this, [this]() {
+        if (!m_syncing)
+            centerActiveBlock();
+    });
+
+    return view;
+}
+
 void EsbozoWindow::refreshUI() {
-    QLayoutItem* child;
-    while ((child = m_documentLayout->takeAt (0)) != nullptr) {
-        if (child->widget())
-            child->widget()->deleteLater();
-        delete child;
+    m_syncing = true;
+
+    const size_t count = m_document.getBlockCount();
+    QHash<const Block*, BlockView*> reusable;
+    QSet<const Block*> alive;
+    for (size_t i = 0; i < count; ++i)
+        alive.insert (m_document.getBlock (i));
+
+    std::vector<BlockView*> stale;
+    for (BlockView* view : m_views) {
+        if (alive.contains (view->block()) && view->block()->getType() == view->type())
+            reusable.insert (view->block(), view);
+        else
+            stale.push_back (view);
     }
 
-    m_activeTextEdit = nullptr;
-    const size_t count = m_document.getBlockCount();
-
+    std::vector<BlockView*> views;
     for (size_t i = 0; i < count; ++i) {
         Block* block = m_document.getBlock (i);
-        if (!block)
-            continue;
-
-        if (i == m_activeBlockIndex)
-            addEditor (block);
-        else
-            addInactiveWidget (i, block);
+        BlockView* view = reusable.value (block, nullptr);
+        views.push_back (view ? view : createView (block));
     }
+
+    bool sameOrder = m_documentLayout->count() == static_cast<int> (views.size());
+    for (size_t i = 0; sameOrder && i < views.size(); ++i)
+        sameOrder = m_documentLayout->itemAt (static_cast<int> (i))->widget() == views[i];
+    if (!sameOrder) {
+        while (QLayoutItem* item = m_documentLayout->takeAt (0))
+            delete item;
+        for (BlockView* view : views)
+            m_documentLayout->addWidget (view);
+    }
+
+    for (BlockView* view : stale) {
+        view->hide();
+        view->deleteLater();
+    }
+    m_views = views;
+
+    int equationNumber = 0;
+    for (size_t i = 0; i < m_views.size(); ++i) {
+        BlockView* view = m_views[i];
+        if (view->type() == BlockType::Equation)
+            view->setEquationNumber (++equationNumber);
+        view->syncFromBlock();
+        const bool active = (i == m_activeBlockIndex);
+        view->setFocusedLook (active, active);
+    }
+
+    m_activeTextEdit = m_activeBlockIndex < m_views.size() ? m_views[m_activeBlockIndex]->editor() : nullptr;
+    m_syncing = false;
 
     updateImageWidths();
     updateStatus();
 
     QTimer::singleShot (0, this, [this]() {
         centerActiveBlock();
-    });
-}
-
-void EsbozoWindow::addEditor (Block* block) {
-    const BlockType type = block->getType();
-
-    BlockEditor* editBox = new BlockEditor (m_containerWidget);
-    editBox->setLabelText (commandLabelFor (block->getType()));
-    editBox->setAcceptRichText (false);
-
-    if (InlineMarkup::isRichType (type))
-        InlineMarkup::load (editBox->document(), block->getContent());
-    else
-        editBox->setPlainText (block->getContent());
-    editBox->moveCursor (QTextCursor::End);
-
-    editBox->setFont (Theme::editorFont (type));
-    if (type == BlockType::Image && block->getContent().isEmpty())
-        editBox->setPlaceholderText ("Ruta de la imagen");
-    else if (type == BlockType::Equation && block->getContent().isEmpty())
-        editBox->setPlaceholderText ("ecuación en LaTeX");
-
-    editBox->setStyleSheet (Theme::editorStyle());
-    editBox->setLineWrapMode (QTextEdit::WidgetWidth);
-    editBox->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
-    editBox->setVerticalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
-
-    auto updateHeight = [this, editBox]() {
-        int docHeight = static_cast<int> (editBox->document()->size().height());
-        int newHeight = qMax (50, docHeight + 16 + Theme::metrics().legendZone);
-        editBox->setMinimumHeight (newHeight);
-        editBox->setMaximumHeight (newHeight);
-        centerActiveBlock();
-    };
-
-    connect (editBox->document()->documentLayout(),
-             &QAbstractTextDocumentLayout::documentSizeChanged,
-             this, [updateHeight] (const QSizeF&) {
-                 updateHeight();
-             });
-
-    connect (editBox, &QTextEdit::textChanged, this, [this]() {
-        saveCurrentContent();
-    });
-
-    connect (editBox, &QTextEdit::currentCharFormatChanged, this, [this] (const QTextCharFormat&) {
-        updateStatus();
-    });
-
-    editBox->installEventFilter (this);
-    m_documentLayout->addWidget (editBox);
-    m_activeTextEdit = editBox;
-
-    updateHeight();
-
-    QTimer::singleShot (0, this, [this]() {
         if (m_activeTextEdit) {
             m_activeTextEdit->setFocus();
             m_activeTextEdit->moveCursor (QTextCursor::End);
         }
     });
-}
-
-void EsbozoWindow::addInactiveWidget (size_t index, Block* block) {
-    const BlockType type = block->getType();
-    ClickableLabel* clickable = nullptr;
-    bool centered = true;
-
-    if (type == BlockType::Image) {
-        clickable = new ImageLabel (block->getContent(), m_containerWidget);
-    } else if (type == BlockType::Graph) {
-        const GraphBlock* graph = dynamic_cast<const GraphBlock*> (block);
-        if (!graph)
-            return;
-        clickable = new GraphLabel (std::make_shared<GraphBlock> (*graph), m_containerWidget);
-    } else if (type == BlockType::Equation) {
-        int equationNumber = 0;
-        for (size_t k = 0; k <= index; ++k) {
-            if (m_document.getBlock (k)->getType() == BlockType::Equation)
-                equationNumber++;
-        }
-        clickable = new EquationLabel (block->getContent(), equationNumber, m_containerWidget);
-    } else if (type == BlockType::Table) {
-        const TableBlock* table = dynamic_cast<const TableBlock*> (block);
-        if (!table)
-            return;
-        clickable = new TableLabel (table->getData(), table->getTitle(), table->hasHeaderRow(),
-                                    table->hasRowNames(), m_containerWidget);
-    } else {
-        const QString content = block->getContent();
-        const QString html = content.isEmpty() ? QString ("(vacío)") : InlineMarkup::toHtml (content);
-
-        clickable = new ClickableLabel (html, m_containerWidget);
-        clickable->setTextFormat (Qt::RichText);
-        clickable->setFont (Theme::labelFont (type));
-        clickable->setStyleSheet (Theme::labelStyle (type));
-        clickable->setWordWrap (true);
-        centered = false;
-    }
-
-    connect (clickable, &ClickableLabel::doubleClicked, this, [this, index]() { activateBlock (index); });
-
-    if (centered)
-        m_documentLayout->addWidget (clickable, 0, Qt::AlignCenter);
-    else
-        m_documentLayout->addWidget (clickable);
 }

@@ -2,12 +2,14 @@
 
 #include <QMainWindow>
 #include <QString>
+#include <vector>
 
 #include "core/CommandProcessor.hpp"
 #include "core/Document.hpp"
 #include "ui/Wizard.hpp"
 
 class BlockEditor;
+class BlockView;
 class QEvent;
 class QKeyEvent;
 class QLabel;
@@ -25,6 +27,7 @@ public:
     bool loadProject (const QString& path);
     const Document& currentDocument() const { return m_document; }
     bool wizardActive() const { return m_wizard.active(); }
+    BlockEditor* activeEditor() const { return m_activeTextEdit; }
 
 protected:
     bool eventFilter (QObject* obj, QEvent* event) override;
@@ -67,8 +70,8 @@ private:
     void updateImageWidths();
     void centerActiveBlock();
     void refreshUI();
-    void addEditor (Block* block);
-    void addInactiveWidget (size_t index, Block* block);
+    BlockView* createView (Block* block);
+    int indexOfView (const BlockView* view) const;
 
     Document m_document;
     CommandProcessor m_processor;
@@ -81,4 +84,6 @@ private:
     QScrollArea* m_scrollArea = nullptr;
     QLabel* m_statusLabel = nullptr;
     BlockEditor* m_activeTextEdit = nullptr;
+    std::vector<BlockView*> m_views;
+    bool m_syncing = false;
 };

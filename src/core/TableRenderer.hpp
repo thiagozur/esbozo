@@ -103,6 +103,19 @@ inline QVector<QStringList> loadCsvFile (const QString& path, bool* ok = nullptr
     return data;
 }
 
+struct Style {
+    QColor cell { Qt::white };
+    QColor header { 240, 243, 246 };
+    QColor grid { 210, 210, 210 };
+    QColor headerRule { 210, 210, 210 };
+    QColor headerText { 20, 20, 20 };
+    QColor bodyText { 50, 50, 50 };
+    QColor title { 34, 34, 34 };
+    QColor empty { 150, 150, 150 };
+    QString fontFamily { "Segoe UI" };
+    double fontScale = 1.0;
+};
+
 namespace detail {
 
 constexpr double kRowH = 30.0;
@@ -117,9 +130,9 @@ inline CellKind kindOf (int r, int c, bool hasHeader, bool hasRowNames) {
     return Normal;
 }
 
-inline QFont cellFont (CellKind kind) {
-    QFont f ("Segoe UI");
-    f.setPixelSize (14);
+inline QFont cellFont (CellKind kind, const QString& family, double scale) {
+    QFont f (family);
+    f.setPixelSize (qRound (14 * scale));
     f.setBold (kind == Header);
     f.setItalic (kind == RowLabel);
     return f;
@@ -140,47 +153,78 @@ inline int columnCount (const QVector<QStringList>& data) {
     return n;
 }
 
-inline QVector<double> columnWidths (const QVector<QStringList>& data, bool hasHeader, bool hasRowNames, double available) {
+inline QVector<double> columnWidths (const QVector<QStringList>& data, bool hasHeader, bool hasRowNames, double available, const Style& style) {
     const int ncols = columnCount (data);
     QVector<double> w (ncols, 0.0);
     for (int r = 0; r < data.size(); ++r) {
         for (int c = 0; c < data[r].size(); ++c) {
-            const QFontMetricsF fm (cellFont (kindOf (r, c, hasHeader, hasRowNames)));
-            w[c] = qMax (w[c], fm.horizontalAdvance (data[r][c]) + 2 * kPadX);
+            const QFontMetricsF fm (cellFont (kindOf (r, c, hasHeader, hasRowNames), style.fontFamily, style.fontScale));
+            w[c] = qMax (w[c], fm.horizontalAdvance (data[r][c]) + 2 * kPadX * style.fontScale);
         }
     }
     double sum = 0.0;
     for (double x : w) sum += x;
     if (sum <= 0.0) return w;
 
-    const double target = (sum >= available) ? available : qMax (sum, available * 0.6);
-    const double scale = target / sum;
+    if (sum < available) {
+        const double scale = qMax (sum, available * 0.6) / sum;
+        for (double& x : w) x *= scale;
+        return w;
+    }
+
+    const double shortLimit = 80.0 * style.fontScale;
+    const double floorWidth = 40.0 * style.fontScale;
+    double protectedSum = 0.0, flexSum = 0.0;
+    int flexCount = 0;
+    for (double x : w) {
+        if (x <= shortLimit) {
+            protectedSum += x;
+        } else {
+            flexSum += x;
+            ++flexCount;
+        }
+    }
+
+    const double rest = available - protectedSum;
+    if (flexCount > 0 && rest >= floorWidth * flexCount) {
+        for (double& x : w) {
+            if (x > shortLimit)
+                x = qMax (floorWidth, rest * x / flexSum);
+        }
+        double total = 0.0;
+        for (double x : w) total += x;
+        if (total > available) {
+            double shrinkable = 0.0;
+            for (double x : w)
+                if (x > shortLimit) shrinkable += x - floorWidth;
+            const double ratio = shrinkable > 0.0 ? qMin (1.0, (total - available) / shrinkable) : 0.0;
+            for (double& x : w)
+                if (x > shortLimit) x -= (x - floorWidth) * ratio;
+        }
+        return w;
+    }
+
+    const double scale = available / sum;
     for (double& x : w) x *= scale;
     return w;
 }
 
 }
 
-struct Colors {
-    QColor cell { Qt::white };
-    QColor header { 240, 243, 246 };
-    QColor grid { 210, 210, 210 };
-    QColor headerRule { 210, 210, 210 };
-    QColor headerText { 20, 20, 20 };
-    QColor bodyText { 50, 50, 50 };
-    QColor title { 34, 34, 34 };
-    QColor empty { 150, 150, 150 };
-};
 
-inline int preferredHeight (const QVector<QStringList>& data, const QString& title = QString()) {
+inline int preferredHeight (const QVector<QStringList>& data, const QString& title = QString(), const Style& style = Style()) {
     if (data.isEmpty()) return 50;
-    const double titleH = title.isEmpty() ? 0.0 : detail::kTitleH;
-    return static_cast<int> (std::ceil (data.size() * detail::kRowH + titleH)) + 4;
+    const double titleH = title.isEmpty() ? 0.0 : detail::kTitleH * style.fontScale;
+    return static_cast<int> (std::ceil (data.size() * detail::kRowH * style.fontScale + titleH)) + 4;
 }
 
-inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool hasRowNames, const QString& title, int width, int height, qreal dpr = 1.0, const Colors& colors = Colors())
+inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool hasRowNames, const QString& title, int width, int height, qreal dpr = 1.0,
+                       const Style& colors = Style())
 {
     using namespace detail;
+    const double kRowH = detail::kRowH * colors.fontScale;
+    const double kPadX = detail::kPadX * colors.fontScale;
+    const double kTitleH = detail::kTitleH * colors.fontScale;
 
     const int w = qMax (100, width);
     const int h = qMax (50, height);
@@ -194,8 +238,8 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
     p.setRenderHint (QPainter::TextAntialiasing, true);
 
     if (data.isEmpty()) {
-        QFont f ("Segoe UI");
-        f.setPixelSize (14);
+        QFont f (colors.fontFamily);
+        f.setPixelSize (qRound (14 * colors.fontScale));
         f.setItalic (true);
         p.setFont (f);
         p.setPen (colors.empty);
@@ -206,7 +250,7 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
 
     const int nrows = data.size();
     const int ncols = columnCount (data);
-    const QVector<double> colW = columnWidths (data, hasHeaderRow, hasRowNames, w - 4.0);
+    const QVector<double> colW = columnWidths (data, hasHeaderRow, hasRowNames, w - 4.0, colors);
     double tableW = 0.0;
     for (double x : colW) tableW += x;
 
@@ -214,8 +258,8 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
     double y0 = 2.0;
 
     if (!title.isEmpty()) {
-        QFont tf ("Segoe UI");
-        tf.setPixelSize (15);
+        QFont tf (colors.fontFamily);
+        tf.setPixelSize (qRound (15 * colors.fontScale));
         tf.setBold (true);
         p.setFont (tf);
         p.setPen (colors.title);
@@ -255,7 +299,7 @@ inline QPixmap render (const QVector<QStringList>& data, bool hasHeaderRow, bool
         for (int c = 0; c < ncols; ++c) {
             if (c < data[r].size() && !data[r][c].isEmpty()) {
                 const CellKind kind = kindOf (r, c, hasHeaderRow, hasRowNames);
-                const QFont f = cellFont (kind);
+                const QFont f = cellFont (kind, colors.fontFamily, colors.fontScale);
                 const QString text = data[r][c];
                 p.setFont (f);
                 p.setPen (kind == Header ? colors.headerText : colors.bodyText);

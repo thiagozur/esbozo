@@ -92,6 +92,7 @@ public:
     explicit BlockEditor (QWidget* parent = nullptr);
     void setLabelText (const QString& text);
     void setWizardMode (bool wizard);
+    void setFrameVisible (bool visible);
 
 protected:
     void paintEvent (QPaintEvent* event) override;
@@ -108,4 +109,45 @@ private:
     bool m_caretVisible = true;
     QTimer m_blinkTimer;
     FrameOverlay* m_frame = nullptr;
+};
+
+class BlockView : public QWidget {
+    Q_OBJECT
+
+public:
+    BlockView (Block* block, QWidget* parent = nullptr);
+
+    Block* block() const { return m_block; }
+    BlockType type() const { return m_type; }
+    BlockEditor* editor() const { return m_editor; }
+    bool isTextual() const;
+
+    void syncFromBlock();
+    void setFocusedLook (bool focused, bool force = false);
+    void setEquationNumber (int number);
+    void setCardWidths (int imageBox, int wideBox);
+
+signals:
+    void activated();
+    void contentHeightChanged();
+
+protected:
+    void mouseDoubleClickEvent (QMouseEvent* event) override;
+
+private:
+    void updateEditorHeight();
+    void rebuildCard();
+    void applyCardWidth();
+    QString fingerprint() const;
+
+    Block* m_block;
+    BlockType m_type;
+    BlockEditor* m_editor = nullptr;
+    ClickableLabel* m_card = nullptr;
+    QString m_cardKey;
+    int m_equationNumber = 0;
+    int m_imageBox = 0;
+    int m_wideBox = 0;
+    bool m_focused = false;
+    bool m_styled = false;
 };

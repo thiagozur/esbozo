@@ -1,19 +1,27 @@
 #include "ui/BlockWidgets.hpp"
 
+#include <QAbstractTextDocumentLayout>
 #include <QApplication>
 #include <QPainter>
 #include <QPainterPath>
+#include <QSignalBlocker>
+#include <QTextCursor>
+#include <QVBoxLayout>
 
 #include "core/EquationRenderer.hpp"
 #include "core/GraphRenderer.hpp"
+#include "core/InlineMarkup.hpp"
+#include "core/TableBlock.hpp"
 #include "core/TableRenderer.hpp"
 #include "ui/Theme.hpp"
 
 namespace {
 
-GraphRenderer::Colors graphColors() {
+GraphRenderer::Style graphStyle() {
     const Theme::Colors& c = Theme::colors();
-    GraphRenderer::Colors g;
+    GraphRenderer::Style g;
+    g.fontFamily = Theme::fonts().family;
+    g.fontScale = Theme::sizes().contentScale;
     g.title = c.text;
     g.label = c.text;
     g.tick = Theme::withAlpha (c.text, 0.85);
@@ -25,9 +33,11 @@ GraphRenderer::Colors graphColors() {
     return g;
 }
 
-TableRenderer::Colors tableColors() {
+TableRenderer::Style tableStyle() {
     const Theme::Colors& c = Theme::colors();
-    TableRenderer::Colors t;
+    TableRenderer::Style t;
+    t.fontFamily = Theme::fonts().family;
+    t.fontScale = Theme::sizes().contentScale;
     t.cell = Qt::transparent;
     t.header = Qt::transparent;
     t.grid = Theme::withAlpha (c.text, 0.25);
@@ -111,7 +121,7 @@ void GraphLabel::setBoxWidth (int boxWidth) {
     m_lastDpr = dpr;
 
     int pixHeight = pixWidth * 13 / 20;
-    setPixmap (GraphRenderer::render (*m_graph, pixWidth, pixHeight, dpr, graphColors()));
+    setPixmap (GraphRenderer::render (*m_graph, pixWidth, pixHeight, dpr, graphStyle()));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
@@ -131,8 +141,8 @@ void EquationLabel::setBoxWidth (int boxWidth) {
     m_lastWidth = pixWidth;
     m_lastDpr = dpr;
 
-    int pixHeight = EquationRenderer::preferredHeight (m_latex, pixWidth, m_equationNumber);
-    setPixmap (EquationRenderer::render (m_latex, pixWidth, pixHeight, dpr, m_equationNumber, Theme::colors().text));
+    int pixHeight = EquationRenderer::preferredHeight (m_latex, pixWidth, m_equationNumber, Theme::sizes().contentScale);
+    setPixmap (EquationRenderer::render (m_latex, pixWidth, pixHeight, dpr, m_equationNumber, Theme::colors().text, Theme::sizes().contentScale));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
@@ -152,8 +162,8 @@ void TableLabel::setBoxWidth (int boxWidth) {
     m_lastWidth = pixWidth;
     m_lastDpr = dpr;
 
-    int pixHeight = TableRenderer::preferredHeight (m_data, m_title);
-    setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr, tableColors()));
+    int pixHeight = TableRenderer::preferredHeight (m_data, m_title, tableStyle());
+    setPixmap (TableRenderer::render (m_data, m_hasHeaderRow, m_hasRowNames, m_title, pixWidth, pixHeight, dpr, tableStyle()));
     setFixedSize (pixWidth + chrome, pixHeight + chrome);
 }
 
@@ -256,6 +266,10 @@ void BlockEditor::setLabelText (const QString& text) {
     m_frame->update();
 }
 
+void BlockEditor::setFrameVisible (bool visible) {
+    m_frame->setVisible (visible);
+}
+
 void BlockEditor::setWizardMode (bool wizard) {
     m_wizard = wizard;
     m_caretColor = wizard ? Theme::colors().aqua : Theme::colors().accent;
@@ -295,4 +309,195 @@ void BlockEditor::paintEvent (QPaintEvent* event) {
     QPainter painter (viewport());
     const QRect r = cursorRect();
     painter.fillRect (QRect (r.left(), r.top(), Theme::metrics().caretWidth, r.height()), m_caretColor);
+}
+
+BlockView::BlockView (Block* block, QWidget* parent)
+    : QWidget (parent), m_block (block), m_type (block->getType())
+{
+    QVBoxLayout* layout = new QVBoxLayout (this);
+    layout->setContentsMargins (0, 0, 0, 0);
+    layout->setSpacing (0);
+
+    m_editor = new BlockEditor (this);
+    m_editor->setAcceptRichText (false);
+    m_editor->setLineWrapMode (QTextEdit::WidgetWidth);
+    m_editor->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
+    m_editor->setVerticalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
+    layout->addWidget (m_editor);
+
+    connect (m_editor->document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
+             this, [this] (const QSizeF&) { updateEditorHeight(); });
+
+    syncFromBlock();
+    setFocusedLook (false);
+}
+
+bool BlockView::isTextual() const {
+    return m_type == BlockType::Title || m_type == BlockType::Subtitle || m_type == BlockType::Paragraph;
+}
+
+void BlockView::syncFromBlock() {
+    const QString model = m_block->getContent();
+    const bool rich = InlineMarkup::isRichType (m_type);
+    const QString shown = rich ? InlineMarkup::serialize (m_editor->document()) : m_editor->toPlainText();
+
+    if (model != shown) {
+        {
+            QSignalBlocker blocker (m_editor);
+            if (rich)
+                InlineMarkup::load (m_editor->document(), model);
+            else
+                m_editor->setPlainText (model);
+            m_editor->moveCursor (QTextCursor::End);
+        }
+        m_editor->setFont (m_focused ? Theme::editorFont (m_type) : Theme::labelFont (m_type));
+        updateEditorHeight();
+    }
+
+    if (!isTextual())
+        rebuildCard();
+}
+
+void BlockView::setFocusedLook (bool focused, bool force) {
+    if (m_styled && !force && focused == m_focused)
+        return;
+    m_styled = true;
+    m_focused = focused;
+
+    m_editor->setFont (focused ? Theme::editorFont (m_type) : Theme::labelFont (m_type));
+    m_editor->setStyleSheet (Theme::viewStyle (m_type, focused));
+    m_editor->setReadOnly (!focused);
+    m_editor->setTextInteractionFlags (focused ? Qt::TextEditorInteraction : Qt::NoTextInteraction);
+    m_editor->setFocusPolicy (focused ? Qt::StrongFocus : Qt::NoFocus);
+    m_editor->setAttribute (Qt::WA_TransparentForMouseEvents, !focused);
+    m_editor->setFrameVisible (focused);
+    m_editor->setWizardMode (false);
+    m_editor->setLabelText (focused ? commandLabelFor (m_type) : QString());
+
+    if (focused) {
+        if (m_type == BlockType::Image)
+            m_editor->setPlaceholderText ("Ruta de la imagen");
+        else if (m_type == BlockType::Equation)
+            m_editor->setPlaceholderText ("ecuación en LaTeX");
+        else
+            m_editor->setPlaceholderText (QString());
+    } else {
+        m_editor->setPlaceholderText (isTextual() ? QString ("(vacío)") : QString());
+    }
+
+    if (!isTextual()) {
+        m_editor->setVisible (focused);
+        if (m_card)
+            m_card->setVisible (!focused);
+    }
+    updateEditorHeight();
+}
+
+void BlockView::setEquationNumber (int number) {
+    if (number == m_equationNumber)
+        return;
+    m_equationNumber = number;
+    if (m_type == BlockType::Equation)
+        rebuildCard();
+}
+
+void BlockView::setCardWidths (int imageBox, int wideBox) {
+    m_imageBox = imageBox;
+    m_wideBox = wideBox;
+    applyCardWidth();
+}
+
+void BlockView::applyCardWidth() {
+    if (!m_card || m_wideBox <= 0)
+        return;
+    if (auto* img = qobject_cast<ImageLabel*> (m_card))
+        img->setBoxWidth (m_imageBox);
+    else if (auto* gr = qobject_cast<GraphLabel*> (m_card))
+        gr->setBoxWidth (m_wideBox);
+    else if (auto* eq = qobject_cast<EquationLabel*> (m_card))
+        eq->setBoxWidth (m_wideBox);
+    else if (auto* tb = qobject_cast<TableLabel*> (m_card))
+        tb->setBoxWidth (m_wideBox);
+}
+
+void BlockView::mouseDoubleClickEvent (QMouseEvent* event) {
+    QWidget::mouseDoubleClickEvent (event);
+    if (!m_focused)
+        emit activated();
+}
+
+void BlockView::updateEditorHeight() {
+    const int docHeight = static_cast<int> (m_editor->document()->size().height());
+    const int minHeight = m_focused ? 50 : 30;
+    const int height = qMax (minHeight, docHeight + 16 + Theme::metrics().legendZone);
+    if (m_editor->minimumHeight() == height && m_editor->maximumHeight() == height)
+        return;
+    m_editor->setMinimumHeight (height);
+    m_editor->setMaximumHeight (height);
+    emit contentHeightChanged();
+}
+
+QString BlockView::fingerprint() const {
+    QString key = QString::number (static_cast<int> (m_type)) + '|' + m_block->getContent();
+    quint64 h = 0;
+
+    if (const GraphBlock* g = dynamic_cast<const GraphBlock*> (m_block)) {
+        key += QString ("|%1|%2|%3|%4").arg (static_cast<int> (g->getGraphType()))
+                                       .arg (static_cast<int> (g->getScaleX()))
+                                       .arg (static_cast<int> (g->getScaleY()))
+                                       .arg (g->getSeriesX().name);
+        for (double v : g->getSeriesX().values)
+            h = h * 31 + qHash (v);
+        for (const DataSeries& series : g->getSeriesYList()) {
+            h = h * 31 + qHash (series.name);
+            for (double v : series.values)
+                h = h * 31 + qHash (v);
+        }
+    } else if (const TableBlock* t = dynamic_cast<const TableBlock*> (m_block)) {
+        key += QString ("|%1|%2|%3").arg (t->hasHeaderRow()).arg (t->hasRowNames()).arg (t->getData().size());
+        for (const QStringList& row : t->getData())
+            for (const QString& cell : row)
+                h = h * 31 + qHash (cell);
+    } else if (m_type == BlockType::Equation) {
+        key += QString ("|%1").arg (m_equationNumber);
+    }
+    return key + '|' + QString::number (h);
+}
+
+void BlockView::rebuildCard() {
+    const QString key = fingerprint();
+    if (m_card && key == m_cardKey)
+        return;
+    m_cardKey = key;
+
+    if (m_card) {
+        m_card->hide();
+        m_card->deleteLater();
+        m_card = nullptr;
+    }
+
+    if (m_type == BlockType::Image) {
+        m_card = new ImageLabel (m_block->getContent(), this);
+    } else if (m_type == BlockType::Graph) {
+        const GraphBlock* graph = dynamic_cast<const GraphBlock*> (m_block);
+        if (!graph)
+            return;
+        m_card = new GraphLabel (std::make_shared<GraphBlock> (*graph), this);
+    } else if (m_type == BlockType::Equation) {
+        m_card = new EquationLabel (m_block->getContent(), m_equationNumber, this);
+    } else if (m_type == BlockType::Table) {
+        const TableBlock* table = dynamic_cast<const TableBlock*> (m_block);
+        if (!table)
+            return;
+        m_card = new TableLabel (table->getData(), table->getTitle(), table->hasHeaderRow(), table->hasRowNames(), this);
+    }
+
+    if (!m_card)
+        return;
+
+    connect (m_card, &ClickableLabel::doubleClicked, this, &BlockView::activated);
+    static_cast<QVBoxLayout*> (layout())->addWidget (m_card, 0, Qt::AlignHCenter);
+    m_card->setVisible (!m_focused);
+    applyCardWidth();
+    updateGeometry();
 }

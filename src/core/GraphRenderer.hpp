@@ -12,7 +12,7 @@
 
 namespace GraphRenderer {
 
-struct Colors {
+struct Style {
     QColor title { "#222222" };
     QColor label { "#222222" };
     QColor tick { "#555555" };
@@ -21,6 +21,8 @@ struct Colors {
     QColor empty { "#888888" };
     QColor background { Qt::white };
     QColor markerRing { Qt::white };
+    QString fontFamily { "Segoe UI" };
+    double fontScale = 1.0;
 };
 
 inline QColor seriesColor (int i) {
@@ -77,7 +79,7 @@ inline Axis makeAxis (const QVector<double>& vals, bool log) {
     return a;
 }
 
-inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1.0, const Colors& colors = Colors()) {
+inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1.0, const Style& colors = Style()) {
     QPixmap pm (QSize (width, height) * dpr);
     pm.setDevicePixelRatio (dpr);
     pm.fill (colors.background);
@@ -96,7 +98,13 @@ inline QPixmap render (const GraphBlock& g, int width, int height, qreal dpr = 1
     Axis ax = makeAxis (xs, g.getScaleX() == AxisScale::Log);
     Axis ay = makeAxis (allY, g.getScaleY() == AxisScale::Log);
 
-    QFont tickFont ("Segoe UI", 8), labelFont ("Segoe UI", 9), titleFont ("Segoe UI", 11, QFont::Bold);
+    auto makeFont = [&colors] (double pt, int weight) {
+        QFont f (colors.fontFamily);
+        f.setPointSizeF (pt * colors.fontScale);
+        f.setWeight (static_cast<QFont::Weight> (weight));
+        return f;
+    };
+    QFont tickFont = makeFont (8, QFont::Normal), labelFont = makeFont (9, QFont::Normal), titleFont = makeFont (11, QFont::Bold);
     QFontMetrics tfm (tickFont), lfm (labelFont), hfm (titleFont);
 
     const int margin = 12;
