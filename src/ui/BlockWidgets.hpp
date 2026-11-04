@@ -92,7 +92,7 @@ public:
     explicit BlockEditor (QWidget* parent = nullptr);
     void setLabelText (const QString& text);
     void setWizardMode (bool wizard);
-    void setFrameVisible (bool visible);
+    void setFrameOpacity (qreal opacity);
 
 protected:
     void paintEvent (QPaintEvent* event) override;
@@ -124,6 +124,8 @@ public:
 
     void syncFromBlock();
     void setFocusedLook (bool focused, bool force = false);
+    void setFocusProgress (qreal progress);
+    qreal focusProgress() const { return m_progress; }
     void setEquationNumber (int number);
     void setCardWidths (int imageBox, int wideBox);
 
@@ -138,6 +140,7 @@ private:
     void updateEditorHeight();
     void rebuildCard();
     void applyCardWidth();
+    void applyLook();
     QString fingerprint() const;
 
     Block* m_block;
@@ -150,4 +153,13 @@ private:
     int m_wideBox = 0;
     bool m_focused = false;
     bool m_styled = false;
+    qreal m_progress = 0.0;
+};
+
+class EdgeFade : public QWidget {
+public:
+    explicit EdgeFade (QWidget* parent);
+
+protected:
+    void paintEvent (QPaintEvent* event) override;
 };

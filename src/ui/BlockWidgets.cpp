@@ -192,12 +192,14 @@ public:
     QColor frameColor;
     QColor labelColor;
     QString label;
+    qreal opacity = 1.0;
 
 protected:
     void paintEvent (QPaintEvent*) override {
         const Theme::Metrics& m = Theme::metrics();
         QPainter painter (this);
         painter.setRenderHint (QPainter::Antialiasing, true);
+        painter.setOpacity (opacity);
 
         const qreal w = m.editBorderWidth;
         const QRectF box = QRectF (rect()).adjusted (w / 2.0, m.legendZone + w / 2.0, -w / 2.0, -w / 2.0);
@@ -266,8 +268,12 @@ void BlockEditor::setLabelText (const QString& text) {
     m_frame->update();
 }
 
-void BlockEditor::setFrameVisible (bool visible) {
-    m_frame->setVisible (visible);
+void BlockEditor::setFrameOpacity (qreal opacity) {
+    if (qFuzzyCompare (m_frame->opacity + 1.0, opacity + 1.0))
+        return;
+    m_frame->opacity = opacity;
+    m_frame->setVisible (opacity > 0.01);
+    m_frame->update();
 }
 
 void BlockEditor::setWizardMode (bool wizard) {
@@ -350,7 +356,7 @@ void BlockView::syncFromBlock() {
                 m_editor->setPlainText (model);
             m_editor->moveCursor (QTextCursor::End);
         }
-        m_editor->setFont (m_focused ? Theme::editorFont (m_type) : Theme::labelFont (m_type));
+        applyLook();
         updateEditorHeight();
     }
 
@@ -364,15 +370,13 @@ void BlockView::setFocusedLook (bool focused, bool force) {
     m_styled = true;
     m_focused = focused;
 
-    m_editor->setFont (focused ? Theme::editorFont (m_type) : Theme::labelFont (m_type));
-    m_editor->setStyleSheet (Theme::viewStyle (m_type, focused));
+    m_editor->setStyleSheet (Theme::viewStyle());
     m_editor->setReadOnly (!focused);
     m_editor->setTextInteractionFlags (focused ? Qt::TextEditorInteraction : Qt::NoTextInteraction);
     m_editor->setFocusPolicy (focused ? Qt::StrongFocus : Qt::NoFocus);
     m_editor->setAttribute (Qt::WA_TransparentForMouseEvents, !focused);
-    m_editor->setFrameVisible (focused);
     m_editor->setWizardMode (false);
-    m_editor->setLabelText (focused ? commandLabelFor (m_type) : QString());
+    m_editor->setLabelText (commandLabelFor (m_type));
 
     if (focused) {
         if (m_type == BlockType::Image)
@@ -390,7 +394,33 @@ void BlockView::setFocusedLook (bool focused, bool force) {
         if (m_card)
             m_card->setVisible (!focused);
     }
+    setFocusProgress (focused ? 1.0 : 0.0);
     updateEditorHeight();
+}
+
+void BlockView::setFocusProgress (qreal progress) {
+    m_progress = qBound (0.0, progress, 1.0);
+    applyLook();
+}
+
+void BlockView::applyLook() {
+    const Theme::Colors& c = Theme::colors();
+    const Theme::Alphas& a = Theme::alphas();
+    const double dim = m_type == BlockType::Title ? a.title : m_type == BlockType::Subtitle ? a.subtitle : a.body;
+    const double alpha = dim + (1.0 - dim) * m_progress;
+
+    QPalette palette = m_editor->palette();
+    palette.setColor (QPalette::Text, Theme::withAlpha (c.text, alpha));
+    m_editor->setPalette (palette);
+
+    const QFont resting = Theme::labelFont (m_type);
+    const QFont focused = Theme::editorFont (m_type);
+    QFont font = m_progress >= 0.5 ? focused : resting;
+    font.setPointSizeF (resting.pointSizeF() + (focused.pointSizeF() - resting.pointSizeF()) * m_progress);
+    if (m_editor->font() != font)
+        m_editor->setFont (font);
+
+    m_editor->setFrameOpacity (m_progress);
 }
 
 void BlockView::setEquationNumber (int number) {
@@ -500,4 +530,38 @@ void BlockView::rebuildCard() {
     m_card->setVisible (!m_focused);
     applyCardWidth();
     updateGeometry();
+}
+
+EdgeFade::EdgeFade (QWidget* parent)
+    : QWidget (parent)
+{
+    setAttribute (Qt::WA_TransparentForMouseEvents);
+    setAttribute (Qt::WA_NoSystemBackground);
+}
+
+void EdgeFade::paintEvent (QPaintEvent*) {
+    const int h = qMin (Theme::metrics().fadeHeight, height() / 2);
+    if (h <= 0)
+        return;
+
+    QColor solid = Theme::colors().background;
+    QColor mid = solid;
+    QColor clear = solid;
+    solid.setAlphaF (1.0);
+    mid.setAlphaF (0.55);
+    clear.setAlphaF (0.0);
+
+    QPainter painter (this);
+
+    QLinearGradient top (0, 0, 0, h);
+    top.setColorAt (0.0, solid);
+    top.setColorAt (0.45, mid);
+    top.setColorAt (1.0, clear);
+    painter.fillRect (QRect (0, 0, width(), h), top);
+
+    QLinearGradient bottom (0, height(), 0, height() - h);
+    bottom.setColorAt (0.0, solid);
+    bottom.setColorAt (0.45, mid);
+    bottom.setColorAt (1.0, clear);
+    painter.fillRect (QRect (0, height() - h, width(), h), bottom);
 }

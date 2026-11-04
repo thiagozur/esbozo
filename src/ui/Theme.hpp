@@ -65,6 +65,8 @@ struct Metrics {
     int imageRadius = 8;
     int editBorderWidth = 2;
     int caretWidth = 2;
+    int transitionMs = 260;
+    int fadeHeight = 110;
     int cardChrome() const { return 2 * (cardPadding + cardBorderWidth); }
 };
 
@@ -201,16 +203,8 @@ inline QString editorStyle() {
         .arg (css (c.accent, a.selection));
 }
 
-inline QString viewStyle (BlockType type, bool focused) {
-    if (focused)
-        return editorStyle();
-    const Colors& c = colors();
-    const Alphas& a = alphas();
-    const double alpha = type == BlockType::Title ? a.title
-                       : type == BlockType::Subtitle ? a.subtitle
-                       : a.body;
-    return QString ("QTextEdit { background: transparent; color: %1; border: none; padding: %2px; }")
-        .arg (css (c.text, alpha))
+inline QString viewStyle() {
+    return QString ("QTextEdit { background: transparent; border: none; padding: %1px; }")
         .arg (metrics().editBorderWidth + 6);
 }
 

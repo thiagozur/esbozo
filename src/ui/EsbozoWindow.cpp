@@ -2,6 +2,8 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QCoreApplication>
+#include <QEasingCurve>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHash>
@@ -14,6 +16,8 @@
 #include <QTextCursor>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVariantAnimation>
+#include <algorithm>
 #include <memory>
 
 #include "core/EquationBlock.hpp"
@@ -58,10 +62,36 @@ EsbozoWindow::EsbozoWindow()
 
     setCentralWidget (centralWidget);
 
-    refreshUI();
+    m_fade = new EdgeFade (m_scrollArea->viewport());
+    m_fade->raise();
+    m_scrollArea->viewport()->installEventFilter (this);
+
+    m_transition = new QVariantAnimation (this);
+    m_transition->setStartValue (0.0);
+    m_transition->setEndValue (1.0);
+    m_transition->setEasingCurve (QEasingCurve::OutCubic);
+    connect (m_transition, &QVariantAnimation::valueChanged, this, [this] (const QVariant& value) {
+        applyTransition (value.toReal());
+    });
+    connect (m_transition, &QVariantAnimation::finished, this, [this]() {
+        finishTransition (true);
+    });
+
+    refreshUI (false);
+}
+
+void EsbozoWindow::setAnimationsEnabled (bool enabled) {
+    m_animationsEnabled = enabled;
+    if (!enabled)
+        finishTransition (true);
 }
 
 bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
+    if (obj == m_scrollArea->viewport() && event->type() == QEvent::Resize) {
+        m_fade->setGeometry (m_scrollArea->viewport()->rect());
+        m_fade->raise();
+    }
+
     if (obj == m_activeTextEdit && event->type() == QEvent::KeyPress) {
         QKeyEvent* keyEvent = static_cast<QKeyEvent*> (event);
 
@@ -232,7 +262,7 @@ void EsbozoWindow::newProject() {
     m_wizard.reset();
     updateWindowTitle();
     m_statusLabel->setText ("Nuevo proyecto creado");
-    refreshUI();
+    refreshUI (false);
 }
 
 void EsbozoWindow::saveProject() {
@@ -272,7 +302,7 @@ bool EsbozoWindow::loadProject (const QString& path) {
     m_wizard.reset();
     updateWindowTitle();
     m_statusLabel->setText ("Proyecto cargado exitosamente desde: " + path);
-    refreshUI();
+    refreshUI (false);
     return true;
 }
 
@@ -476,23 +506,25 @@ void EsbozoWindow::updateImageWidths() {
 }
 
 void EsbozoWindow::centerActiveBlock() {
-    if (!m_containerWidget || !m_scrollArea)
+    if (m_centering || !m_containerWidget || !m_scrollArea)
         return;
 
-    int viewportHeight = m_scrollArea->viewport()->height();
-    int count = m_documentLayout->count();
+    const int viewportHeight = m_scrollArea->viewport()->height();
+    const int count = m_documentLayout->count();
     if (viewportHeight <= 0 || count == 0 || m_activeBlockIndex >= static_cast<size_t> (count))
         return;
 
+    m_centering = true;
+
     const int margin = sideMargin();
-    int contentWidth = m_scrollArea->viewport()->width() - 2 * margin;
-    int spacing = m_documentLayout->spacing();
+    const int contentWidth = m_scrollArea->viewport()->width() - 2 * margin;
+    const int spacing = m_documentLayout->spacing();
 
     int hAbove = 0;
     int hActive = 50;
     for (int i = 0; i < count; ++i) {
         QLayoutItem* item = m_documentLayout->itemAt (i);
-        int h = item->hasHeightForWidth() ? item->heightForWidth (contentWidth) : item->sizeHint().height();
+        const int h = item->hasHeightForWidth() ? item->heightForWidth (contentWidth) : item->sizeHint().height();
         if (static_cast<size_t> (i) < m_activeBlockIndex) {
             hAbove += h + spacing;
         } else {
@@ -501,14 +533,61 @@ void EsbozoWindow::centerActiveBlock() {
         }
     }
 
-    int idealY = (viewportHeight / 2) - (hActive / 2);
-    int topMargin = qMax (0, idealY - hAbove);
-    int bottomMargin = qMax (0, (viewportHeight / 2) - (hActive / 2));
+    m_documentLayout->setContentsMargins (margin, viewportHeight / 2, margin, viewportHeight / 2);
+    QCoreApplication::sendPostedEvents (m_containerWidget, QEvent::LayoutRequest);
 
-    m_documentLayout->setContentsMargins (margin, topMargin, margin, bottomMargin);
+    const int ideal = hAbove + hActive / 2;
+    int value = ideal;
+    if (m_transitioning)
+        value = qRound (m_scrollStart + (ideal - m_scrollStart) * m_progress);
+    m_scrollArea->verticalScrollBar()->setValue (value);
 
-    int scroll = (topMargin == 0) ? (hAbove - idealY) : 0;
-    m_scrollArea->verticalScrollBar()->setValue (scroll);
+    m_centering = false;
+}
+
+void EsbozoWindow::startTransition (BlockView* from, BlockView* to) {
+    finishTransition (false);
+
+    m_fadeOut = from;
+    m_fadeIn = to;
+    m_scrollStart = m_scrollArea->verticalScrollBar()->value();
+    m_transitioning = true;
+    m_progress = 0.0;
+
+    if (m_fadeOut)
+        m_fadeOut->setFocusProgress (1.0);
+    if (m_fadeIn)
+        m_fadeIn->setFocusProgress (0.0);
+
+    m_transition->setDuration (Theme::metrics().transitionMs);
+    m_transition->start();
+}
+
+void EsbozoWindow::applyTransition (qreal progress) {
+    m_progress = progress;
+    if (m_fadeOut)
+        m_fadeOut->setFocusProgress (1.0 - progress);
+    if (m_fadeIn)
+        m_fadeIn->setFocusProgress (progress);
+    centerActiveBlock();
+}
+
+void EsbozoWindow::finishTransition (bool recenter) {
+    if (m_transition->state() == QAbstractAnimation::Running)
+        m_transition->stop();
+
+    if (m_fadeOut)
+        m_fadeOut->setFocusProgress (0.0);
+    if (m_fadeIn)
+        m_fadeIn->setFocusProgress (1.0);
+
+    m_fadeOut = nullptr;
+    m_fadeIn = nullptr;
+    m_transitioning = false;
+    m_progress = 1.0;
+
+    if (recenter)
+        centerActiveBlock();
 }
 
 int EsbozoWindow::indexOfView (const BlockView* view) const {
@@ -547,7 +626,8 @@ BlockView* EsbozoWindow::createView (Block* block) {
     return view;
 }
 
-void EsbozoWindow::refreshUI() {
+void EsbozoWindow::refreshUI (bool animate) {
+    finishTransition (false);
     m_syncing = true;
 
     const size_t count = m_document.getBlockCount();
@@ -597,11 +677,20 @@ void EsbozoWindow::refreshUI() {
         view->setFocusedLook (active, active);
     }
 
-    m_activeTextEdit = m_activeBlockIndex < m_views.size() ? m_views[m_activeBlockIndex]->editor() : nullptr;
+    BlockView* next = m_activeBlockIndex < m_views.size() ? m_views[m_activeBlockIndex] : nullptr;
+    BlockView* previous = m_activeView;
+    if (previous && std::find (m_views.begin(), m_views.end(), previous) == m_views.end())
+        previous = nullptr;
+    m_activeView = next;
+
+    m_activeTextEdit = next ? next->editor() : nullptr;
     m_syncing = false;
 
     updateImageWidths();
     updateStatus();
+
+    if (animate && m_animationsEnabled && isVisible() && next && next != previous)
+        startTransition (previous, next);
 
     QTimer::singleShot (0, this, [this]() {
         centerActiveBlock();
