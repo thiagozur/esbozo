@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "core/Block.hpp"
+#include "ui/Backdrop.hpp"
 #include "core/GraphBlock.hpp"
 
 class ClickableLabel : public QLabel {
@@ -158,8 +159,23 @@ private:
 
 class EdgeFade : public QWidget {
 public:
-    explicit EdgeFade (QWidget* parent);
+    EdgeFade (QWidget* parent, Backdrop::Widget* backdrop);
+    void setMargin (int margin);
+    int margin() const { return m_margin; }
 
 protected:
     void paintEvent (QPaintEvent* event) override;
+
+private:
+    void rebuild (int band, qreal dpr, const QPoint& origin);
+
+    Backdrop::Widget* m_backdrop;
+    int m_margin = 0;
+    QImage m_top;
+    QImage m_bottom;
+    QSize m_builtSize;
+    QPoint m_builtOrigin;
+    qreal m_builtDpr = 0.0;
+    int m_builtBand = -1;
+    int m_builtGeneration = -1;
 };

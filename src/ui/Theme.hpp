@@ -59,6 +59,9 @@ struct Metrics {
     int sideMargin = 20;
     double pageMarginInches = 2.0;
     int maxContentWidth = 0;
+    double pageMarginVerticalInches = 1.0;
+    int verticalMarginStartHeight = 600;
+    int maxContentHeight = 0;
     int legendZone = 10;
     int cardPadding = 8;
     int cardBorderWidth = 0;
@@ -105,10 +108,12 @@ inline const Sizes& sizes() {
     return s;
 }
 
-inline const Metrics& metrics() {
-    static const Metrics m;
+inline Metrics& metricsSlot() {
+    static Metrics m;
     return m;
 }
+
+inline const Metrics& metrics() { return metricsSlot(); }
 
 inline Fonts& fontsSlot() {
     static Fonts f;

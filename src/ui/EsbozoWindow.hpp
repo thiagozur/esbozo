@@ -11,6 +11,7 @@
 class BlockEditor;
 class BlockView;
 class EdgeFade;
+namespace Backdrop { class Widget; }
 class QVariantAnimation;
 class QEvent;
 class QKeyEvent;
@@ -31,6 +32,7 @@ public:
     bool wizardActive() const { return m_wizard.active(); }
     BlockEditor* activeEditor() const { return m_activeTextEdit; }
     void setAnimationsEnabled (bool enabled);
+    int verticalMargin() const;
 
 protected:
     bool eventFilter (QObject* obj, QEvent* event) override;
@@ -98,6 +100,7 @@ private:
     BlockView* m_fadeIn = nullptr;
     BlockView* m_fadeOut = nullptr;
     EdgeFade* m_fade = nullptr;
+    Backdrop::Widget* m_backdrop = nullptr;
     qreal m_progress = 1.0;
     int m_scrollStart = 0;
     bool m_transitioning = false;

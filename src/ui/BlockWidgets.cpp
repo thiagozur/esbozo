@@ -532,36 +532,75 @@ void BlockView::rebuildCard() {
     updateGeometry();
 }
 
-EdgeFade::EdgeFade (QWidget* parent)
-    : QWidget (parent)
+EdgeFade::EdgeFade (QWidget* parent, Backdrop::Widget* backdrop)
+    : QWidget (parent), m_backdrop (backdrop)
 {
     setAttribute (Qt::WA_TransparentForMouseEvents);
     setAttribute (Qt::WA_NoSystemBackground);
 }
 
+void EdgeFade::setMargin (int margin) {
+    margin = qMax (0, margin);
+    if (margin == m_margin)
+        return;
+    m_margin = margin;
+    update();
+}
+
+void EdgeFade::rebuild (int band, qreal dpr, const QPoint& origin) {
+    const QPixmap& source = m_backdrop->pixmap();
+
+    auto build = [&] (int offsetY, bool top) {
+        const QRect logical (origin.x(), origin.y() + offsetY, width(), band);
+        QImage image = source.copy (QRect (logical.topLeft() * dpr, logical.size() * dpr))
+                           .toImage()
+                           .convertToFormat (QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio (dpr);
+
+        QImage mask (image.size(), QImage::Format_ARGB32_Premultiplied);
+        mask.setDevicePixelRatio (dpr);
+        mask.fill (Qt::transparent);
+
+        const double solid = static_cast<double> (qMin (m_margin, band)) / band;
+        QLinearGradient gradient (0, top ? 0 : band, 0, top ? band : 0);
+        gradient.setColorAt (0.0, QColor (0, 0, 0, 255));
+        gradient.setColorAt (solid, QColor (0, 0, 0, 255));
+        gradient.setColorAt (solid + (1.0 - solid) * 0.45, QColor (0, 0, 0, 140));
+        gradient.setColorAt (1.0, QColor (0, 0, 0, 0));
+
+        QPainter maskPainter (&mask);
+        maskPainter.fillRect (QRect (0, 0, width(), band), gradient);
+        maskPainter.end();
+
+        QPainter painter (&image);
+        painter.setCompositionMode (QPainter::CompositionMode_DestinationIn);
+        painter.drawImage (QPoint (0, 0), mask);
+        painter.end();
+        return image;
+    };
+
+    m_top = build (0, true);
+    m_bottom = build (height() - band, false);
+
+    m_builtSize = size();
+    m_builtOrigin = origin;
+    m_builtDpr = dpr;
+    m_builtBand = band;
+    m_builtGeneration = m_backdrop->generation();
+}
+
 void EdgeFade::paintEvent (QPaintEvent*) {
-    const int h = qMin (Theme::metrics().fadeHeight, height() / 2);
-    if (h <= 0)
+    const int band = qMin (height() / 2, m_margin + Theme::metrics().fadeHeight);
+    if (band <= 0 || !m_backdrop)
         return;
 
-    QColor solid = Theme::colors().background;
-    QColor mid = solid;
-    QColor clear = solid;
-    solid.setAlphaF (1.0);
-    mid.setAlphaF (0.55);
-    clear.setAlphaF (0.0);
+    const qreal dpr = devicePixelRatioF();
+    const QPoint origin = mapTo (m_backdrop, QPoint (0, 0));
+    m_backdrop->pixmap();
+    if (m_builtSize != size() || m_builtOrigin != origin || m_builtBand != band || !qFuzzyCompare (m_builtDpr, dpr) || m_builtGeneration != m_backdrop->generation())
+        rebuild (band, dpr, origin);
 
     QPainter painter (this);
-
-    QLinearGradient top (0, 0, 0, h);
-    top.setColorAt (0.0, solid);
-    top.setColorAt (0.45, mid);
-    top.setColorAt (1.0, clear);
-    painter.fillRect (QRect (0, 0, width(), h), top);
-
-    QLinearGradient bottom (0, height(), 0, height() - h);
-    bottom.setColorAt (0.0, solid);
-    bottom.setColorAt (0.45, mid);
-    bottom.setColorAt (1.0, clear);
-    painter.fillRect (QRect (0, height() - h, width(), h), bottom);
+    painter.drawImage (QPoint (0, 0), m_top);
+    painter.drawImage (QPoint (0, height() - band), m_bottom);
 }

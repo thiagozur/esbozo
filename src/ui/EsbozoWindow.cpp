@@ -28,6 +28,7 @@
 #include "core/TitleBlock.hpp"
 #include "io/MarkdownExporter.hpp"
 #include "io/ProjectFile.hpp"
+#include "ui/Backdrop.hpp"
 #include "ui/BlockWidgets.hpp"
 #include "ui/Dialogs.hpp"
 #include "ui/Theme.hpp"
@@ -41,7 +42,8 @@ EsbozoWindow::EsbozoWindow()
     if (m_document.getBlockCount() == 0)
         m_document.addBlock (std::make_unique<TitleBlock>());
 
-    QWidget* centralWidget = new QWidget (this);
+    m_backdrop = new Backdrop::Widget (this);
+    QWidget* centralWidget = m_backdrop;
     QVBoxLayout* mainLayout = new QVBoxLayout (centralWidget);
 
     m_scrollArea = new QScrollArea (this);
@@ -52,6 +54,8 @@ EsbozoWindow::EsbozoWindow()
     m_documentLayout->setAlignment (Qt::AlignTop);
     m_documentLayout->setSpacing (Theme::metrics().blockSpacing);
     m_scrollArea->setWidget (m_containerWidget);
+    m_containerWidget->setAutoFillBackground (false);
+    m_scrollArea->viewport()->setAutoFillBackground (false);
 
     mainLayout->addWidget (m_scrollArea);
 
@@ -62,7 +66,7 @@ EsbozoWindow::EsbozoWindow()
 
     setCentralWidget (centralWidget);
 
-    m_fade = new EdgeFade (m_scrollArea->viewport());
+    m_fade = new EdgeFade (m_scrollArea->viewport(), m_backdrop);
     m_fade->raise();
     m_scrollArea->viewport()->installEventFilter (this);
 
@@ -80,6 +84,16 @@ EsbozoWindow::EsbozoWindow()
     refreshUI (false);
 }
 
+int EsbozoWindow::verticalMargin() const {
+    const Theme::Metrics& m = Theme::metrics();
+    const int height = m_scrollArea->viewport()->height();
+    const int wanted = qRound (m.pageMarginVerticalInches * logicalDpiY());
+    int margin = qBound (0, (height - m.verticalMarginStartHeight) / 2, wanted);
+    if (m.maxContentHeight > 0)
+        margin = qMax (margin, (height - m.maxContentHeight) / 2);
+    return margin;
+}
+
 void EsbozoWindow::setAnimationsEnabled (bool enabled) {
     m_animationsEnabled = enabled;
     if (!enabled)
@@ -89,6 +103,7 @@ void EsbozoWindow::setAnimationsEnabled (bool enabled) {
 bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
     if (obj == m_scrollArea->viewport() && event->type() == QEvent::Resize) {
         m_fade->setGeometry (m_scrollArea->viewport()->rect());
+        m_fade->setMargin (verticalMargin());
         m_fade->raise();
     }
 
