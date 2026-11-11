@@ -17,7 +17,7 @@ public:
     virtual void clearInput() = 0;
     virtual void refresh() = 0;
     virtual void discardActiveBlock() = 0;
-    virtual void showMessage (const QString& text) = 0;
+    virtual void showMessage (const QString& text, bool error = false) = 0;
     virtual QString pickFile (const QString& title, const QString& nameFilter) = 0;
     virtual void exportAs (const QString& format) = 0;
 };

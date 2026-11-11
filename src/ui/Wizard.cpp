@@ -85,7 +85,7 @@ void Wizard::pickGraphCsv() {
         setState (State::GraphXScale,
                   QString ("CSV cargado (%1 series Y). Escala eje X: 'lin' o 'log'").arg (m_ySeries.size()));
     } else {
-        m_host.setPrompt ("Error al leer el CSV. Escribe 'can;;' para cancelar o reintenta.");
+        m_host.setPrompt ("Error. Escribe 'can;;' para cancelar o reintenta.");
     }
 }
 
@@ -105,7 +105,7 @@ void Wizard::pickTableCsv() {
     } else {
         m_state = State::Idle;
         m_host.discardActiveBlock();
-        m_host.showMessage ("No se pudo leer el CSV");
+        m_host.showMessage ("No se pudo leer el CSV", true);
     }
 }
 

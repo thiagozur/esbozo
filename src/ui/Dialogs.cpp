@@ -8,7 +8,7 @@ namespace Dialogs {
 
 QString pickFile (QWidget* parent, const QString& title, const QString& nameFilter) {
     QFileDialog dialog (parent, title);
-    dialog.setOption (QFileDialog::DontUseNativeDialog, true);
+    dialog.setOption (QFileDialog::DontUseNativeDialog, false);
     dialog.setFileMode (QFileDialog::ExistingFile);
     dialog.setNameFilter (nameFilter);
     dialog.setViewMode (QFileDialog::Detail);

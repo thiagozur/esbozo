@@ -60,7 +60,7 @@ struct Metrics {
     double pageMarginInches = 2.0;
     int maxContentWidth = 0;
     double pageMarginVerticalInches = 1.0;
-    int verticalMarginStartHeight = 600;
+    int verticalMarginStartHeight = 760;
     int maxContentHeight = 0;
     int legendZone = 10;
     int cardPadding = 8;
@@ -69,6 +69,7 @@ struct Metrics {
     int editBorderWidth = 2;
     int caretWidth = 2;
     int transitionMs = 260;
+    int toastMs = 3200;
     int fadeHeight = 110;
     int cardChrome() const { return 2 * (cardPadding + cardBorderWidth); }
 };
@@ -192,10 +193,6 @@ inline QString mutedLabelStyle() {
 inline QString errorLabelStyle() {
     return QString ("QLabel { color: %1; font-weight: bold; padding: 6px; background: transparent; }")
         .arg (css (colors().accent));
-}
-
-inline QString statusStyle() {
-    return QString ("color: %1;").arg (css (colors().text, alphas().muted));
 }
 
 inline QString editorStyle() {

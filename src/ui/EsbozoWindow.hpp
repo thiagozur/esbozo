@@ -11,11 +11,11 @@
 class BlockEditor;
 class BlockView;
 class EdgeFade;
+class Toast;
 namespace Backdrop { class Widget; }
 class QVariantAnimation;
 class QEvent;
 class QKeyEvent;
-class QLabel;
 class QResizeEvent;
 class QScrollArea;
 class QVBoxLayout;
@@ -33,6 +33,8 @@ public:
     BlockEditor* activeEditor() const { return m_activeTextEdit; }
     void setAnimationsEnabled (bool enabled);
     int verticalMargin() const;
+    void showStartupHint();
+    QString lastNotification() const;
 
 protected:
     bool eventFilter (QObject* obj, QEvent* event) override;
@@ -46,7 +48,7 @@ private:
     void clearInput() override;
     void refresh() override { refreshUI (true); }
     void discardActiveBlock() override;
-    void showMessage (const QString& text) override;
+    void showMessage (const QString& text, bool error) override;
     QString pickFile (const QString& title, const QString& nameFilter) override;
     void exportAs (const QString& format) override;
 
@@ -69,7 +71,8 @@ private:
     void toggleBold();
     void toggleItalic();
     QString inputForProcessor();
-    void updateStatus();
+    void updateFormatTag();
+    void notify (const QString& text, int kind = 0, int holdMs = 0);
 
     int sideMargin() const;
     void updateImageWidths();
@@ -90,7 +93,6 @@ private:
     QWidget* m_containerWidget = nullptr;
     QVBoxLayout* m_documentLayout = nullptr;
     QScrollArea* m_scrollArea = nullptr;
-    QLabel* m_statusLabel = nullptr;
     BlockEditor* m_activeTextEdit = nullptr;
     std::vector<BlockView*> m_views;
     bool m_syncing = false;
@@ -100,6 +102,7 @@ private:
     BlockView* m_fadeIn = nullptr;
     BlockView* m_fadeOut = nullptr;
     EdgeFade* m_fade = nullptr;
+    Toast* m_toast = nullptr;
     Backdrop::Widget* m_backdrop = nullptr;
     qreal m_progress = 1.0;
     int m_scrollStart = 0;

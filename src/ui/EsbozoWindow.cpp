@@ -57,18 +57,16 @@ EsbozoWindow::EsbozoWindow()
     m_containerWidget->setAutoFillBackground (false);
     m_scrollArea->viewport()->setAutoFillBackground (false);
 
+    mainLayout->setContentsMargins (0, 0, 0, 0);
     mainLayout->addWidget (m_scrollArea);
-
-    m_statusLabel = new QLabel ("[Ctrl + Up / ,] subir, [Ctrl + Down / .] bajar. Enter procesa comandos.", this);
-    m_statusLabel->setStyleSheet (Theme::statusStyle());
-    m_statusLabel->setFont (Theme::labelSmallFont());
-    mainLayout->addWidget (m_statusLabel);
 
     setCentralWidget (centralWidget);
 
     m_fade = new EdgeFade (m_scrollArea->viewport(), m_backdrop);
     m_fade->raise();
     m_scrollArea->viewport()->installEventFilter (this);
+
+    m_toast = new Toast (m_backdrop);
 
     m_transition = new QVariantAnimation (this);
     m_transition->setStartValue (0.0);
@@ -105,6 +103,8 @@ bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
         m_fade->setGeometry (m_scrollArea->viewport()->rect());
         m_fade->setMargin (verticalMargin());
         m_fade->raise();
+        m_toast->setArea (m_scrollArea->geometry(), verticalMargin());
+        m_toast->raise();
     }
 
     if (obj == m_activeTextEdit && event->type() == QEvent::KeyPress) {
@@ -241,8 +241,22 @@ void EsbozoWindow::clearInput() {
         m_activeTextEdit->clear();
 }
 
-void EsbozoWindow::showMessage (const QString& text) {
-    m_statusLabel->setText (text);
+void EsbozoWindow::showMessage (const QString& text, bool error) {
+    notify (text, error ? 2 : 0);
+}
+
+void EsbozoWindow::notify (const QString& text, int kind, int holdMs) {
+    m_toast->setArea (m_scrollArea->geometry(), verticalMargin());
+    const Toast::Kind toastKind = kind == 2 ? Toast::Kind::Error : kind == 1 ? Toast::Kind::Success : Toast::Kind::Info;
+    m_toast->notify (text, toastKind, holdMs > 0 ? holdMs : Theme::metrics().toastMs);
+}
+
+QString EsbozoWindow::lastNotification() const {
+    return m_toast->text();
+}
+
+void EsbozoWindow::showStartupHint() {
+    notify (QString::fromUtf8 ("Ctrl+↑ / Ctrl+↓ cambia de bloque · crear con cmd;; + enter"), 0, 5200);
 }
 
 QString EsbozoWindow::pickFile (const QString& title, const QString& nameFilter) {
@@ -276,7 +290,7 @@ void EsbozoWindow::newProject() {
     m_currentFilePath.clear();
     m_wizard.reset();
     updateWindowTitle();
-    m_statusLabel->setText ("Nuevo proyecto creado");
+    notify ("Nuevo proyecto creado");
     refreshUI (false);
 }
 
@@ -293,9 +307,9 @@ void EsbozoWindow::saveProject() {
     QString error;
     if (ProjectFile::save (m_document, m_currentFilePath, &error)) {
         updateWindowTitle();
-        m_statusLabel->setText ("Proyecto guardado exitosamente en: " + m_currentFilePath);
+        notify ("Proyecto guardado en: " + m_currentFilePath, 1);
     } else {
-        m_statusLabel->setText (error);
+        notify (error, 2);
     }
 }
 
@@ -308,7 +322,7 @@ void EsbozoWindow::openProject() {
 bool EsbozoWindow::loadProject (const QString& path) {
     QString error;
     if (!ProjectFile::load (m_document, path, &error)) {
-        m_statusLabel->setText (error);
+        notify (error, 2);
         return false;
     }
 
@@ -316,8 +330,8 @@ bool EsbozoWindow::loadProject (const QString& path) {
     m_currentFilePath = path;
     m_wizard.reset();
     updateWindowTitle();
-    m_statusLabel->setText ("Proyecto cargado exitosamente desde: " + path);
     refreshUI (false);
+    notify ("Proyecto abierto: " + path, 1);
     return true;
 }
 
@@ -347,9 +361,9 @@ void EsbozoWindow::exportToMarkdown() {
         filePath += ".md";
 
     if (MarkdownExporter::exportTo (m_document, filePath))
-        m_statusLabel->setText ("Documento exportado exitosamente a: " + filePath);
+        notify ("Exportado a: " + filePath, 1);
     else
-        m_statusLabel->setText ("Error al exportar el archivo Markdown");
+        notify ("Error al exportar el archivo Markdown", 2);
 }
 
 void EsbozoWindow::exportToPdf() {
@@ -366,11 +380,11 @@ void EsbozoWindow::exportToPdf() {
     QApplication::restoreOverrideCursor();
 
     if (!res.ok)
-        m_statusLabel->setText ("Error al exportar el PDF: " + res.message);
+        notify ("Error al exportar el PDF: " + res.message, 2);
     else if (!res.message.isEmpty())
-        m_statusLabel->setText ("PDF exportado a: " + filePath + " (" + res.message + ")");
+        notify ("PDF exportado a: " + filePath + " (" + res.message + ")", 1, 6000);
     else
-        m_statusLabel->setText ("Documento exportado exitosamente a: " + filePath);
+        notify ("Exportado a: " + filePath, 1);
 }
 
 void EsbozoWindow::handleInputSubmitted() {
@@ -399,11 +413,7 @@ bool EsbozoWindow::navigationLocked() const {
 }
 
 void EsbozoWindow::showLockedMessage() {
-    const QString previous = m_statusLabel->text();
-    m_statusLabel->setText ("Terminá la operación actual o cancelala con 'can;;' antes de cambiar de bloque");
-    QTimer::singleShot (2500, this, [this, previous]() {
-        m_statusLabel->setText (previous);
-    });
+    notify ("Terminá la operación actual o cancelala con 'can;;' antes de cambiar de bloque", 0, 2400);
 }
 
 void EsbozoWindow::activateBlock (size_t index) {
@@ -456,6 +466,7 @@ void EsbozoWindow::toggleBold() {
     bool on = m_activeTextEdit->currentCharFormat().fontWeight() >= QFont::Bold;
     fmt.setFontWeight (on ? QFont::Normal : QFont::Bold);
     m_activeTextEdit->mergeCurrentCharFormat (fmt);
+    updateFormatTag();
 }
 
 void EsbozoWindow::toggleItalic() {
@@ -464,6 +475,7 @@ void EsbozoWindow::toggleItalic() {
     QTextCharFormat fmt;
     fmt.setFontItalic (!m_activeTextEdit->currentCharFormat().fontItalic());
     m_activeTextEdit->mergeCurrentCharFormat (fmt);
+    updateFormatTag();
 }
 
 QString EsbozoWindow::inputForProcessor() {
@@ -490,16 +502,17 @@ QString EsbozoWindow::inputForProcessor() {
     return InlineMarkup::serialize (m_activeTextEdit->document()) + cmd;
 }
 
-void EsbozoWindow::updateStatus() {
-    QString s = QString ("Bloque activo: %1 / %2").arg (m_activeBlockIndex + 1).arg (m_document.getBlockCount());
+void EsbozoWindow::updateFormatTag() {
+    if (!m_activeTextEdit)
+        return;
+    bool bold = false;
+    bool italic = false;
     if (canFormat()) {
         const QTextCharFormat f = m_activeTextEdit->currentCharFormat();
-        if (f.fontWeight() >= QFont::Bold)
-            s += "   [Negrita]";
-        if (f.fontItalic())
-            s += "   [Cursiva]";
+        bold = f.fontWeight() >= QFont::Bold;
+        italic = f.fontItalic();
     }
-    m_statusLabel->setText (s);
+    m_activeTextEdit->setFormatTags (bold, italic);
 }
 
 int EsbozoWindow::sideMargin() const {
@@ -624,7 +637,7 @@ BlockView* EsbozoWindow::createView (Block* block) {
 
     connect (view->editor(), &QTextEdit::currentCharFormatChanged, this, [this, view] (const QTextCharFormat&) {
         if (view->editor() == m_activeTextEdit)
-            updateStatus();
+            updateFormatTag();
     });
 
     connect (view, &BlockView::activated, this, [this, view]() {
@@ -702,7 +715,7 @@ void EsbozoWindow::refreshUI (bool animate) {
     m_syncing = false;
 
     updateImageWidths();
-    updateStatus();
+    updateFormatTag();
 
     if (animate && m_animationsEnabled && isVisible() && next && next != previous)
         startTransition (previous, next);

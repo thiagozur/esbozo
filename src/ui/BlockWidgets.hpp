@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QTextEdit>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVector>
 #include <memory>
 
@@ -94,6 +95,8 @@ public:
     void setLabelText (const QString& text);
     void setWizardMode (bool wizard);
     void setFrameOpacity (qreal opacity);
+    void setFormatTags (bool bold, bool italic);
+    QString formatTags() const;
 
 protected:
     void paintEvent (QPaintEvent* event) override;
@@ -178,4 +181,35 @@ private:
     qreal m_builtDpr = 0.0;
     int m_builtBand = -1;
     int m_builtGeneration = -1;
+};
+
+class Toast : public QWidget {
+    Q_OBJECT
+
+public:
+    enum class Kind {
+        Info,
+        Success,
+        Error
+    };
+
+    explicit Toast (QWidget* parent);
+    void setArea (const QRect& area, int bottomMargin);
+    void notify (const QString& text, Kind kind = Kind::Info, int holdMs = 3200);
+    QString text() const { return m_text; }
+    Kind kind() const { return m_kind; }
+
+protected:
+    void paintEvent (QPaintEvent* event) override;
+
+private:
+    void place();
+
+    QString m_text;
+    QString m_shown;
+    Kind m_kind = Kind::Info;
+    QRect m_area;
+    int m_bottomMargin = 0;
+    qreal m_opacity = 0.0;
+    QVariantAnimation* m_animation = nullptr;
 };

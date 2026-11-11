@@ -192,6 +192,7 @@ public:
     QColor frameColor;
     QColor labelColor;
     QString label;
+    QString tags;
     qreal opacity = 1.0;
 
 protected:
@@ -204,16 +205,23 @@ protected:
         const qreal w = m.editBorderWidth;
         const QRectF box = QRectF (rect()).adjusted (w / 2.0, m.legendZone + w / 2.0, -w / 2.0, -w / 2.0);
 
-        QRectF labelRect;
+        QRectF labelRect, tagRect;
         const QFont font = Theme::labelSmallFont();
+        const QFontMetricsF fm (font);
+        QPainterPath hole;
         if (!label.isEmpty()) {
-            const QFontMetricsF fm (font);
             const qreal textWidth = fm.horizontalAdvance (label);
             labelRect = QRectF (box.right() - 22.0 - textWidth - 12.0, box.top() - fm.height() / 2.0, textWidth + 12.0, fm.height());
+            hole.addRect (labelRect);
+        }
+        if (!tags.isEmpty()) {
+            const qreal textWidth = fm.horizontalAdvance (tags);
+            tagRect = QRectF (box.left() + 22.0, box.top() - fm.height() / 2.0, textWidth + 12.0, fm.height());
+            hole.addRect (tagRect);
+        }
+        if (!hole.isEmpty()) {
             QPainterPath visible;
             visible.addRect (QRectF (rect()));
-            QPainterPath hole;
-            hole.addRect (labelRect);
             painter.setClipPath (visible.subtracted (hole));
         }
 
@@ -223,11 +231,15 @@ protected:
         painter.setBrush (Qt::NoBrush);
         painter.drawRoundedRect (box, 2.0, 2.0);
 
+        painter.setClipping (false);
+        painter.setFont (font);
         if (!label.isEmpty()) {
-            painter.setClipping (false);
-            painter.setFont (font);
             painter.setPen (labelColor);
             painter.drawText (labelRect, Qt::AlignCenter, label);
+        }
+        if (!tags.isEmpty()) {
+            painter.setPen (Theme::withAlpha (Theme::colors().accent, 0.95));
+            painter.drawText (tagRect, Qt::AlignCenter, tags);
         }
     }
 };
@@ -274,6 +286,22 @@ void BlockEditor::setFrameOpacity (qreal opacity) {
     m_frame->opacity = opacity;
     m_frame->setVisible (opacity > 0.01);
     m_frame->update();
+}
+
+void BlockEditor::setFormatTags (bool bold, bool italic) {
+    QString tags;
+    if (bold)
+        tags = "B";
+    if (italic)
+        tags += tags.isEmpty() ? "I" : " I";
+    if (tags == m_frame->tags)
+        return;
+    m_frame->tags = tags;
+    m_frame->update();
+}
+
+QString BlockEditor::formatTags() const {
+    return m_frame->tags;
 }
 
 void BlockEditor::setWizardMode (bool wizard) {
@@ -597,10 +625,84 @@ void EdgeFade::paintEvent (QPaintEvent*) {
     const qreal dpr = devicePixelRatioF();
     const QPoint origin = mapTo (m_backdrop, QPoint (0, 0));
     m_backdrop->pixmap();
-    if (m_builtSize != size() || m_builtOrigin != origin || m_builtBand != band || !qFuzzyCompare (m_builtDpr, dpr) || m_builtGeneration != m_backdrop->generation())
+    if (m_builtSize != size() || m_builtOrigin != origin || m_builtBand != band || !qFuzzyCompare (m_builtDpr, dpr)
+        || m_builtGeneration != m_backdrop->generation())
         rebuild (band, dpr, origin);
 
     QPainter painter (this);
     painter.drawImage (QPoint (0, 0), m_top);
     painter.drawImage (QPoint (0, height() - band), m_bottom);
+}
+
+Toast::Toast (QWidget* parent)
+    : QWidget (parent)
+{
+    setAttribute (Qt::WA_TransparentForMouseEvents);
+    hide();
+
+    m_animation = new QVariantAnimation (this);
+    connect (m_animation, &QVariantAnimation::valueChanged, this, [this] (const QVariant& value) {
+        m_opacity = value.toReal();
+        update();
+    });
+    connect (m_animation, &QVariantAnimation::finished, this, [this]() {
+        hide();
+    });
+}
+
+void Toast::setArea (const QRect& area, int bottomMargin) {
+    m_area = area;
+    m_bottomMargin = bottomMargin;
+    if (isVisible())
+        place();
+}
+
+void Toast::place() {
+    const QFontMetrics fm (Theme::labelSmallFont());
+    const int maxWidth = qMax (120, static_cast<int> (m_area.width() * 0.7));
+    m_shown = fm.elidedText (m_text, Qt::ElideMiddle, maxWidth - 36);
+    const QSize size (fm.horizontalAdvance (m_shown) + 36, fm.height() + 16);
+    const int x = m_area.center().x() - size.width() / 2;
+    const int y = m_area.bottom() - size.height() - 22 - m_bottomMargin / 2;
+    setGeometry (QRect (QPoint (x, y), size));
+}
+
+void Toast::notify (const QString& text, Kind kind, int holdMs) {
+    m_text = text;
+    m_kind = kind;
+    place();
+
+    const qreal start = isVisible() ? m_opacity : 0.0;
+    raise();
+    show();
+
+    const int fadeIn = 160;
+    const int fadeOut = 420;
+    const int total = fadeIn + holdMs + fadeOut;
+    m_animation->stop();
+    m_animation->setKeyValues (QVariantAnimation::KeyValues());
+    m_animation->setDuration (total);
+    m_animation->setKeyValueAt (0.0, start);
+    m_animation->setKeyValueAt (static_cast<qreal> (fadeIn) / total, 1.0);
+    m_animation->setKeyValueAt (static_cast<qreal> (fadeIn + holdMs) / total, 1.0);
+    m_animation->setKeyValueAt (1.0, 0.0);
+    m_animation->start();
+}
+
+void Toast::paintEvent (QPaintEvent*) {
+    const Theme::Colors& c = Theme::colors();
+    QPainter painter (this);
+    painter.setRenderHint (QPainter::Antialiasing, true);
+    painter.setOpacity (m_opacity);
+
+    const bool error = m_kind == Kind::Error;
+    QColor fill = c.surface;
+    fill.setAlphaF (0.94);
+    painter.setPen (QPen (error ? Theme::withAlpha (c.accent, 0.85) : Theme::withAlpha (c.text, 0.22), 1.0));
+    painter.setBrush (fill);
+    painter.drawRoundedRect (QRectF (rect()).adjusted (0.5, 0.5, -0.5, -0.5), 9.0, 9.0);
+
+    painter.setFont (Theme::labelSmallFont());
+    painter.setPen (error ? c.accent : Theme::withAlpha (c.text, 0.92));
+    painter.drawText (rect(), Qt::AlignCenter, m_shown);
 }
