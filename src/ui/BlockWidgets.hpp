@@ -97,6 +97,7 @@ public:
     void setFrameOpacity (qreal opacity);
     void setFormatTags (bool bold, bool italic);
     QString formatTags() const;
+    QRectF caretRect() const;
 
 protected:
     void paintEvent (QPaintEvent* event) override;
@@ -107,6 +108,12 @@ protected:
 private:
     void restartBlink();
     void applyColors();
+    void onCursorMoved();
+
+    QVariantAnimation* m_caretAnimation = nullptr;
+    QRectF m_caretFrom;
+    QRectF m_lastLive;
+    bool m_lastLiveValid = false;
 
     QColor m_caretColor;
     bool m_wizard = false;

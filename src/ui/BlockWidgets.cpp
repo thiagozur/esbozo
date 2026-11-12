@@ -2,6 +2,7 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QEasingCurve>
 #include <QPainter>
 #include <QPainterPath>
 #include <QSignalBlocker>
@@ -262,8 +263,58 @@ BlockEditor::BlockEditor (QWidget* parent)
         });
     }
 
-    connect (this, &QTextEdit::cursorPositionChanged, this, &BlockEditor::restartBlink);
+    m_caretAnimation = new QVariantAnimation (this);
+    m_caretAnimation->setStartValue (0.0);
+    m_caretAnimation->setEndValue (1.0);
+    m_caretAnimation->setEasingCurve (QEasingCurve::OutCubic);
+    connect (m_caretAnimation, &QVariantAnimation::valueChanged, this, [this] (const QVariant&) {
+        viewport()->update();
+    });
+
+    connect (this, &QTextEdit::cursorPositionChanged, this, &BlockEditor::onCursorMoved);
     connect (this, &QTextEdit::textChanged, this, &BlockEditor::restartBlink);
+}
+
+QRectF BlockEditor::caretRect() const {
+    const QRectF live (cursorRect());
+    if (!m_caretAnimation || m_caretAnimation->state() != QAbstractAnimation::Running)
+        return live;
+    const qreal t = m_caretAnimation->currentValue().toReal();
+    return QRectF (m_caretFrom.left() + (live.left() - m_caretFrom.left()) * t,
+                   m_caretFrom.top() + (live.top() - m_caretFrom.top()) * t,
+                   live.width(),
+                   m_caretFrom.height() + (live.height() - m_caretFrom.height()) * t);
+}
+
+void BlockEditor::onCursorMoved() {
+    restartBlink();
+
+    const QRectF live (cursorRect());
+    if (!hasFocus() || !m_lastLiveValid) {
+        m_lastLive = live;
+        m_lastLiveValid = true;
+        return;
+    }
+
+    QRectF shown = m_lastLive;
+    if (m_caretAnimation->state() == QAbstractAnimation::Running) {
+        const qreal t = m_caretAnimation->currentValue().toReal();
+        shown = QRectF (m_caretFrom.left() + (m_lastLive.left() - m_caretFrom.left()) * t,
+                        m_caretFrom.top() + (m_lastLive.top() - m_caretFrom.top()) * t,
+                        m_lastLive.width(),
+                        m_caretFrom.height() + (m_lastLive.height() - m_caretFrom.height()) * t);
+    }
+
+    m_caretFrom = shown;
+    m_lastLive = live;
+
+    const qreal distance = qAbs (live.left() - shown.left()) + qAbs (live.top() - shown.top());
+    if (distance < 0.5)
+        return;
+
+    m_caretAnimation->stop();
+    m_caretAnimation->setDuration (distance > 160 ? 140 : 90);
+    m_caretAnimation->start();
 }
 
 void BlockEditor::applyColors() {
@@ -325,6 +376,9 @@ void BlockEditor::restartBlink() {
 
 void BlockEditor::focusInEvent (QFocusEvent* event) {
     QTextEdit::focusInEvent (event);
+    m_caretAnimation->stop();
+    m_lastLive = QRectF (cursorRect());
+    m_lastLiveValid = true;
     restartBlink();
 }
 
@@ -340,9 +394,12 @@ void BlockEditor::paintEvent (QPaintEvent* event) {
     if (!hasFocus() || !m_caretVisible || isReadOnly() || textCursor().hasSelection())
         return;
 
+    const QRectF shown = caretRect();
+    m_lastLive = QRectF (cursorRect());
+    m_lastLiveValid = true;
+
     QPainter painter (viewport());
-    const QRect r = cursorRect();
-    painter.fillRect (QRect (r.left(), r.top(), Theme::metrics().caretWidth, r.height()), m_caretColor);
+    painter.fillRect (QRect (qRound (shown.left()), qRound (shown.top()), Theme::metrics().caretWidth, qRound (shown.height())), m_caretColor);
 }
 
 BlockView::BlockView (Block* block, QWidget* parent)
