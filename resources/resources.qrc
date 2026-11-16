@@ -5,5 +5,10 @@
         <file>fonts/TitilliumWeb-Bold.ttf</file>
         <file>fonts/TitilliumWeb-BoldItalic.ttf</file>
         <file>fonts/ChakraPetch-Regular.ttf</file>
+        <file>sounds/block_created.wav</file>
+        <file>sounds/block_deleted.wav</file>
+        <file>sounds/change_focus.wav</file>
+        <file>sounds/wizard_action.wav</file>
+        <file>sounds/error.wav</file>
     </qresource>
 </RCC>

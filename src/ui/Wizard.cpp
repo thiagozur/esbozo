@@ -62,11 +62,13 @@ void Wizard::pickImage() {
     const QString path = m_host.pickFile ("Seleccionar Imagen", "Imágenes (*.png *.jpg *.jpeg)");
     if (path.isEmpty()) {
         m_host.discardActiveBlock();
+        m_host.wizardFinished();
         return;
     }
     if (Block* block = m_host.document().getBlock (m_host.activeIndex()))
         block->setContent (path);
     m_host.refresh();
+    m_host.wizardFinished();
 }
 
 void Wizard::pickGraphCsv() {
@@ -74,6 +76,7 @@ void Wizard::pickGraphCsv() {
     if (path.isEmpty()) {
         m_state = State::Idle;
         m_host.discardActiveBlock();
+        m_host.wizardFinished();
         return;
     }
 
@@ -94,6 +97,7 @@ void Wizard::pickTableCsv() {
     if (path.isEmpty()) {
         m_state = State::Idle;
         m_host.discardActiveBlock();
+        m_host.wizardFinished();
         return;
     }
 
@@ -144,6 +148,7 @@ void Wizard::finishGraph (const QString& description) {
     }
     m_state = State::Idle;
     m_host.refresh();
+    m_host.wizardFinished();
 }
 
 void Wizard::finishTable (const QString& title) {
@@ -157,6 +162,7 @@ void Wizard::finishTable (const QString& title) {
     }
     m_state = State::Idle;
     m_host.refresh();
+    m_host.wizardFinished();
 }
 
 void Wizard::submit (const QString& text) {
@@ -172,6 +178,7 @@ void Wizard::submit (const QString& text) {
             m_host.refresh();
         else
             m_host.discardActiveBlock();
+        m_host.wizardFinished();
         return;
     }
 
@@ -179,6 +186,7 @@ void Wizard::submit (const QString& text) {
         if (input == "md" || input == "pdf") {
             m_state = State::Idle;
             m_host.refresh();
+            m_host.wizardFinished();
             m_host.exportAs (input);
         } else {
             m_host.clearInput();

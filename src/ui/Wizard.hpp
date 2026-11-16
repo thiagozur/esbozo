@@ -20,6 +20,7 @@ public:
     virtual void showMessage (const QString& text, bool error = false) = 0;
     virtual QString pickFile (const QString& title, const QString& nameFilter) = 0;
     virtual void exportAs (const QString& format) = 0;
+    virtual void wizardFinished() = 0;
 };
 
 class Wizard {

@@ -11,6 +11,7 @@
 class BlockEditor;
 class BlockView;
 class EdgeFade;
+class Sounds;
 class Toast;
 namespace Backdrop { class Widget; }
 class QVariantAnimation;
@@ -35,6 +36,7 @@ public:
     int verticalMargin() const;
     void showStartupHint();
     QString lastNotification() const;
+    Sounds& sounds() { return *m_sounds; }
 
 protected:
     bool eventFilter (QObject* obj, QEvent* event) override;
@@ -51,6 +53,7 @@ private:
     void showMessage (const QString& text, bool error) override;
     QString pickFile (const QString& title, const QString& nameFilter) override;
     void exportAs (const QString& format) override;
+    void wizardFinished() override;
 
     void newProject();
     void saveProject();
@@ -73,6 +76,7 @@ private:
     QString inputForProcessor();
     void updateFormatTag();
     void notify (const QString& text, int kind = 0, int holdMs = 0);
+    void toggleSounds();
 
     int sideMargin() const;
     void updateImageWidths();
@@ -103,6 +107,7 @@ private:
     BlockView* m_fadeOut = nullptr;
     EdgeFade* m_fade = nullptr;
     Toast* m_toast = nullptr;
+    Sounds* m_sounds = nullptr;
     Backdrop::Widget* m_backdrop = nullptr;
     qreal m_progress = 1.0;
     int m_scrollStart = 0;

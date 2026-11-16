@@ -6,6 +6,8 @@
 
 int main (int argc, char* argv[]) {
     QApplication app (argc, argv);
+    QCoreApplication::setOrganizationName ("Esbozo");
+    QCoreApplication::setApplicationName ("Esbozo");
     Theme::applyTo (app);
     Backdrop::currentStyle() = Backdrop::preset ("subtle");
 

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_PREFIX_PATH "E:/E/Qt/6.12.0/msvc2022_64")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OPTIONAL_COMPONENTS Multimedia)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -63,3 +63,8 @@ target_link_libraries(Esbozo PRIVATE
     Qt6::Gui
     Qt6::Widgets
 )
+
+if(TARGET Qt6::Multimedia)
+    target_link_libraries(Esbozo PRIVATE Qt6::Multimedia)
+    target_compile_definitions(Esbozo PRIVATE ESBOZO_HAS_MULTIMEDIA)
+endif()

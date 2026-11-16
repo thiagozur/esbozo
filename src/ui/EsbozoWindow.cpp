@@ -31,6 +31,7 @@
 #include "ui/Backdrop.hpp"
 #include "ui/BlockWidgets.hpp"
 #include "ui/Dialogs.hpp"
+#include "ui/Sounds.hpp"
 #include "ui/Theme.hpp"
 
 EsbozoWindow::EsbozoWindow()
@@ -67,6 +68,7 @@ EsbozoWindow::EsbozoWindow()
     m_scrollArea->viewport()->installEventFilter (this);
 
     m_toast = new Toast (m_backdrop);
+    m_sounds = new Sounds (this);
 
     m_transition = new QVariantAnimation (this);
     m_transition->setStartValue (0.0);
@@ -151,6 +153,10 @@ bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
                 toggleItalic();
                 return true;
             }
+            else if (keyEvent->key() == Qt::Key_M) {
+                toggleSounds();
+                return true;
+            }
         }
 
         if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
@@ -206,6 +212,11 @@ void EsbozoWindow::keyPressEvent (QKeyEvent* event) {
             event->accept();
             return;
         }
+        else if (event->key() == Qt::Key_M) {
+            toggleSounds();
+            event->accept();
+            return;
+        }
     }
     QMainWindow::keyPressEvent (event);
 }
@@ -239,6 +250,19 @@ void EsbozoWindow::setPrompt (const QString& text) {
 void EsbozoWindow::clearInput() {
     if (m_activeTextEdit)
         m_activeTextEdit->clear();
+    m_sounds->play (Sounds::Id::Error);
+}
+
+void EsbozoWindow::wizardFinished() {
+    m_sounds->play (Sounds::Id::WizardAction);
+}
+
+void EsbozoWindow::toggleSounds() {
+    m_sounds->setEnabled (!m_sounds->enabled());
+    if (!m_sounds->available())
+        notify ("Sonidos: " + QString (m_sounds->enabled() ? "activados" : "desactivados") + " (este build no incluye Qt Multimedia)");
+    else
+        notify (m_sounds->enabled() ? "Sonidos: activados" : "Sonidos: desactivados");
 }
 
 void EsbozoWindow::showMessage (const QString& text, bool error) {
@@ -246,6 +270,8 @@ void EsbozoWindow::showMessage (const QString& text, bool error) {
 }
 
 void EsbozoWindow::notify (const QString& text, int kind, int holdMs) {
+    if (kind == 2)
+        m_sounds->play (Sounds::Id::Error);
     m_toast->setArea (m_scrollArea->geometry(), verticalMargin());
     const Toast::Kind toastKind = kind == 2 ? Toast::Kind::Error : kind == 1 ? Toast::Kind::Success : Toast::Kind::Info;
     m_toast->notify (text, toastKind, holdMs > 0 ? holdMs : Theme::metrics().toastMs);
@@ -404,6 +430,11 @@ void EsbozoWindow::handleInputSubmitted() {
 
     refreshUI();
 
+    if (result == CommandResult::BlockCreated)
+        m_sounds->play (Sounds::Id::BlockCreated);
+    else if (result == CommandResult::BlockDeleted)
+        m_sounds->play (Sounds::Id::BlockDeleted);
+
     if (result == CommandResult::BlockCreated || result == CommandResult::BlockReset)
         m_wizard.beginForActiveBlock();
 }
@@ -413,6 +444,7 @@ bool EsbozoWindow::navigationLocked() const {
 }
 
 void EsbozoWindow::showLockedMessage() {
+    m_sounds->play (Sounds::Id::Error);
     notify ("Terminá la operación actual o cancelala con 'can;;' antes de cambiar de bloque", 0, 2400);
 }
 
@@ -422,6 +454,8 @@ void EsbozoWindow::activateBlock (size_t index) {
         return;
     }
     saveCurrentContent();
+    if (index != m_activeBlockIndex)
+        m_sounds->play (Sounds::Id::ChangeFocus);
     m_activeBlockIndex = index;
     refreshUI();
 }
@@ -448,6 +482,7 @@ void EsbozoWindow::saveAndNavigate (int delta) {
     long long newIndex = static_cast<long long> (m_activeBlockIndex) + delta;
     if (newIndex >= 0 && newIndex < static_cast<long long> (m_document.getBlockCount())) {
         m_activeBlockIndex = static_cast<size_t> (newIndex);
+        m_sounds->play (Sounds::Id::ChangeFocus);
         refreshUI();
     }
 }
