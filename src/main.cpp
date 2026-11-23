@@ -1,4 +1,5 @@
 ﻿#include <QApplication>
+#include <QFileInfo>
 
 #include "ui/Backdrop.hpp"
 #include "ui/EsbozoWindow.hpp"
@@ -13,7 +14,12 @@ int main (int argc, char* argv[]) {
 
     EsbozoWindow window;
     window.show();
-    window.showStartupHint();
+
+    const QStringList args = QCoreApplication::arguments();
+    if (args.size() > 1 && QFileInfo::exists (args.at (1)))
+        window.loadProject (args.at (1));
+    else
+        window.showStartupHint();
 
     return app.exec();
 }

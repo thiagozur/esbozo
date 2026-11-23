@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QByteArray>
 #include <QString>
+#include <functional>
 #include <vector>
 
 #include "core/CommandProcessor.hpp"
@@ -15,12 +17,19 @@ class Sounds;
 class Toast;
 namespace Backdrop { class Widget; }
 class QVariantAnimation;
+class QCloseEvent;
 class QEvent;
 class QKeyEvent;
 class QResizeEvent;
 class QScrollArea;
 class QVBoxLayout;
 class QWidget;
+
+enum class UnsavedChoice {
+    Save,
+    Discard,
+    Cancel
+};
 
 class EsbozoWindow : public QMainWindow, private WizardHost {
     Q_OBJECT
@@ -37,11 +46,14 @@ public:
     void showStartupHint();
     QString lastNotification() const;
     Sounds& sounds() { return *m_sounds; }
+    bool isModified();
+    void setUnsavedPrompt (std::function<UnsavedChoice()> prompt);
 
 protected:
     bool eventFilter (QObject* obj, QEvent* event) override;
     void keyPressEvent (QKeyEvent* event) override;
     void resizeEvent (QResizeEvent* event) override;
+    void closeEvent (QCloseEvent* event) override;
 
 private:
     Document& document() override { return m_document; }
@@ -56,7 +68,15 @@ private:
     void wizardFinished() override;
 
     void newProject();
-    void saveProject();
+    bool saveProject();
+    bool saveProjectAs();
+    bool writeProject (const QString& path);
+    bool confirmDiscardChanges();
+    UnsavedChoice askUnsavedChoice();
+    void setDirty (bool dirty);
+    void markSaved();
+    QString lastDirectory() const;
+    void rememberDirectory (const QString& path);
     void openProject();
     void updateWindowTitle();
     void startExportWizard();
@@ -108,6 +128,9 @@ private:
     EdgeFade* m_fade = nullptr;
     Toast* m_toast = nullptr;
     Sounds* m_sounds = nullptr;
+    QByteArray m_savedState;
+    bool m_dirty = false;
+    std::function<UnsavedChoice()> m_unsavedPrompt;
     Backdrop::Widget* m_backdrop = nullptr;
     qreal m_progress = 1.0;
     int m_scrollStart = 0;

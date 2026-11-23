@@ -148,7 +148,7 @@ void setError (QString* error, const QString& message) {
 
 namespace ProjectFile {
 
-bool save (const Document& doc, const QString& path, QString* error) {
+QByteArray serialize (const Document& doc) {
     QJsonObject root;
     root["sbz_version"] = "1.0";
 
@@ -175,12 +175,18 @@ bool save (const Document& doc, const QString& path, QString* error) {
     }
     root["blocks"] = blocks;
 
+    return QJsonDocument (root).toJson();
+}
+
+bool save (const Document& doc, const QString& path, QString* error) {
+    const QByteArray bytes = serialize (doc);
+
     QFile file (path);
     if (!file.open (QIODevice::WriteOnly)) {
         setError (error, "Error al guardar el archivo");
         return false;
     }
-    file.write (QJsonDocument (root).toJson());
+    file.write (bytes);
     file.close();
     return true;
 }

@@ -2,12 +2,17 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QCoreApplication>
 #include <QEasingCurve>
 #include <QFileDialog>
+#include <QDir>
 #include <QFileInfo>
 #include <QHash>
 #include <QKeyEvent>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSettings>
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -39,6 +44,7 @@ EsbozoWindow::EsbozoWindow()
 {
     updateWindowTitle();
     resize (Theme::metrics().windowWidth, Theme::metrics().windowHeight);
+    restoreGeometry (QSettings().value ("window/geometry").toByteArray());
 
     if (m_document.getBlockCount() == 0)
         m_document.addBlock (std::make_unique<TitleBlock>());
@@ -82,6 +88,7 @@ EsbozoWindow::EsbozoWindow()
     });
 
     refreshUI (false);
+    markSaved();
 }
 
 int EsbozoWindow::verticalMargin() const {
@@ -114,6 +121,11 @@ bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
 
         if (keyEvent->key() == Qt::Key_Tab && keyEvent->modifiers() == Qt::NoModifier) {
             m_activeTextEdit->moveCursor (QTextCursor::End);
+            return true;
+        }
+
+        if (keyEvent->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier) && keyEvent->key() == Qt::Key_S) {
+            saveProjectAs();
             return true;
         }
 
@@ -178,6 +190,11 @@ bool EsbozoWindow::eventFilter (QObject* obj, QEvent* event) {
 }
 
 void EsbozoWindow::keyPressEvent (QKeyEvent* event) {
+    if (event->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier) && event->key() == Qt::Key_S) {
+        saveProjectAs();
+        event->accept();
+        return;
+    }
     if (event->modifiers() == Qt::ControlModifier) {
         if (event->key() == Qt::Key_Comma || event->key() == Qt::Key_Up) {
             saveCurrentContent();
@@ -254,6 +271,7 @@ void EsbozoWindow::clearInput() {
 }
 
 void EsbozoWindow::wizardFinished() {
+    setDirty (true);
     m_sounds->play (Sounds::Id::WizardAction);
 }
 
@@ -297,6 +315,7 @@ void EsbozoWindow::exportAs (const QString& format) {
 }
 
 void EsbozoWindow::discardActiveBlock() {
+    setDirty (true);
     if (m_document.getBlockCount() > 1) {
         size_t indexToDelete = m_activeBlockIndex;
         if (m_activeBlockIndex > 0)
@@ -308,41 +327,127 @@ void EsbozoWindow::discardActiveBlock() {
     refreshUI();
 }
 
-void EsbozoWindow::newProject() {
+void EsbozoWindow::setDirty (bool dirty) {
+    m_dirty = dirty;
+    setWindowModified (dirty);
+}
+
+void EsbozoWindow::markSaved() {
+    m_savedState = ProjectFile::serialize (m_document);
+    setDirty (false);
+}
+
+bool EsbozoWindow::isModified() {
     saveCurrentContent();
+    if (!m_dirty)
+        return false;
+    if (ProjectFile::serialize (m_document) == m_savedState) {
+        setDirty (false);
+        return false;
+    }
+    return true;
+}
+
+void EsbozoWindow::setUnsavedPrompt (std::function<UnsavedChoice()> prompt) {
+    m_unsavedPrompt = std::move (prompt);
+}
+
+UnsavedChoice EsbozoWindow::askUnsavedChoice() {
+    const QString name = m_currentFilePath.isEmpty() ? QString ("Nuevo Proyecto") : QFileInfo (m_currentFilePath).fileName();
+
+    QMessageBox box (QMessageBox::Warning, "Esbozo", "Hay cambios sin guardar", QMessageBox::NoButton, this);
+    box.setInformativeText (QString::fromUtf8 ("¿Querés guardar los cambios en «%1» antes de continuar?").arg (name));
+    QPushButton* save = box.addButton ("Guardar", QMessageBox::AcceptRole);
+    QPushButton* discard = box.addButton ("No guardar", QMessageBox::DestructiveRole);
+    QPushButton* cancel = box.addButton ("Cancelar", QMessageBox::RejectRole);
+    box.setDefaultButton (save);
+    box.setEscapeButton (cancel);
+    box.exec();
+
+    if (box.clickedButton() == save)
+        return UnsavedChoice::Save;
+    if (box.clickedButton() == discard)
+        return UnsavedChoice::Discard;
+    return UnsavedChoice::Cancel;
+}
+
+bool EsbozoWindow::confirmDiscardChanges() {
+    if (!isModified())
+        return true;
+
+    const UnsavedChoice choice = m_unsavedPrompt ? m_unsavedPrompt() : askUnsavedChoice();
+    switch (choice) {
+        case UnsavedChoice::Save:
+            return saveProject();
+        case UnsavedChoice::Discard:
+            return true;
+        case UnsavedChoice::Cancel:
+            break;
+    }
+    return false;
+}
+
+QString EsbozoWindow::lastDirectory() const {
+    return QSettings().value ("paths/projects", QDir::homePath()).toString();
+}
+
+void EsbozoWindow::rememberDirectory (const QString& path) {
+    QSettings().setValue ("paths/projects", QFileInfo (path).absolutePath());
+}
+
+void EsbozoWindow::newProject() {
+    if (!confirmDiscardChanges())
+        return;
     m_document = Document();
     m_document.addBlock (std::make_unique<TitleBlock>());
     m_activeBlockIndex = 0;
     m_currentFilePath.clear();
     m_wizard.reset();
+    markSaved();
     updateWindowTitle();
     notify ("Nuevo proyecto creado");
     refreshUI (false);
 }
 
-void EsbozoWindow::saveProject() {
-    if (m_currentFilePath.isEmpty()) {
-        QString filePath = QFileDialog::getSaveFileName (this, "Guardar Proyecto", "", "Archivos Esbozo (*.sbz)");
-        if (filePath.isEmpty())
-            return;
-        if (!filePath.endsWith (".sbz", Qt::CaseInsensitive))
-            filePath += ".sbz";
-        m_currentFilePath = filePath;
-    }
-
+bool EsbozoWindow::writeProject (const QString& path) {
     QString error;
-    if (ProjectFile::save (m_document, m_currentFilePath, &error)) {
-        updateWindowTitle();
-        notify ("Proyecto guardado en: " + m_currentFilePath, 1);
-    } else {
+    if (!ProjectFile::save (m_document, path, &error)) {
         notify (error, 2);
+        return false;
     }
+    m_currentFilePath = path;
+    rememberDirectory (path);
+    markSaved();
+    updateWindowTitle();
+    notify ("Proyecto guardado en: " + path, 1);
+    return true;
+}
+
+bool EsbozoWindow::saveProject() {
+    saveCurrentContent();
+    if (m_currentFilePath.isEmpty())
+        return saveProjectAs();
+    return writeProject (m_currentFilePath);
+}
+
+bool EsbozoWindow::saveProjectAs() {
+    saveCurrentContent();
+    const QString suggested = m_currentFilePath.isEmpty() ? lastDirectory() : m_currentFilePath;
+    QString filePath = QFileDialog::getSaveFileName (this, "Guardar Proyecto", suggested, "Archivos Esbozo (*.sbz)");
+    if (filePath.isEmpty())
+        return false;
+    if (!filePath.endsWith (".sbz", Qt::CaseInsensitive))
+        filePath += ".sbz";
+    return writeProject (filePath);
 }
 
 void EsbozoWindow::openProject() {
-    const QString filePath = QFileDialog::getOpenFileName (this, "Abrir Proyecto", "", "Archivos Esbozo (*.sbz)");
-    if (!filePath.isEmpty())
-        loadProject (filePath);
+    const QString filePath = QFileDialog::getOpenFileName (this, "Abrir Proyecto", lastDirectory(), "Archivos Esbozo (*.sbz)");
+    if (filePath.isEmpty())
+        return;
+    if (!confirmDiscardChanges())
+        return;
+    loadProject (filePath);
 }
 
 bool EsbozoWindow::loadProject (const QString& path) {
@@ -355,6 +460,8 @@ bool EsbozoWindow::loadProject (const QString& path) {
     m_activeBlockIndex = 0;
     m_currentFilePath = path;
     m_wizard.reset();
+    rememberDirectory (path);
+    markSaved();
     updateWindowTitle();
     refreshUI (false);
     notify ("Proyecto abierto: " + path, 1);
@@ -366,8 +473,17 @@ void EsbozoWindow::updateWindowTitle() {
     if (!m_currentFilePath.isEmpty())
         title += " - " + QFileInfo (m_currentFilePath).fileName();
     else
-        title += " - [Nuevo Proyecto]";
-    setWindowTitle (title);
+        title += " - Nuevo Proyecto";
+    setWindowTitle (title + "[*]");
+}
+
+void EsbozoWindow::closeEvent (QCloseEvent* event) {
+    if (!confirmDiscardChanges()) {
+        event->ignore();
+        return;
+    }
+    QSettings().setValue ("window/geometry", saveGeometry());
+    event->accept();
 }
 
 void EsbozoWindow::startExportWizard() {
@@ -424,6 +540,8 @@ void EsbozoWindow::handleInputSubmitted() {
 
     m_processor.setActiveBlockIndex (m_activeBlockIndex);
     CommandResult result = m_processor.processInput (inputForProcessor());
+    if (result != CommandResult::None)
+        setDirty (true);
 
     if (result == CommandResult::BlockCreated || result == CommandResult::SectionFinished || result == CommandResult::BlockDeleted)
         m_activeBlockIndex = m_processor.getActiveBlockIndex();
@@ -465,9 +583,13 @@ void EsbozoWindow::saveCurrentContent() {
         return;
     if (m_activeTextEdit && m_activeBlockIndex < m_document.getBlockCount()) {
         if (Block* current = m_document.getBlock (m_activeBlockIndex)) {
-            current->setContent (InlineMarkup::isRichType (current->getType())
+            const QString content = InlineMarkup::isRichType (current->getType())
                 ? InlineMarkup::serialize (m_activeTextEdit->document())
-                : m_activeTextEdit->toPlainText());
+                : m_activeTextEdit->toPlainText();
+            if (content != current->getContent()) {
+                current->setContent (content);
+                setDirty (true);
+            }
         }
     }
 }
